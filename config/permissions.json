@@ -137,6 +137,180 @@
           ]
         }
       ]
+    },
+    {
+      "code": "erp",
+      "name": "ERP系统",
+      "environments": [
+        {
+          "code": "dev",
+          "name": "开发环境",
+          "databases": [
+            {
+              "code": "erp-dev-db",
+              "name": "ERP开发库(SQLite)",
+              "jdbcUrl": "jdbc:sqlite:./data/sqlite/erp-dev.db",
+              "driverClassName": "org.sqlite.JDBC",
+              "autoInit": true,
+              "permissionTables": [
+                {
+                  "code": "user_perm",
+                  "name": "用户权限表",
+                  "tableName": "auth_user_perm",
+                  "fields": {
+                    "personId": "uid",
+                    "personName": "uname",
+                    "scope": "scope_lv",
+                    "permission": "perm_cd"
+                  },
+                  "otherFields": {
+                    "tenant": "T001",
+                    "grant_by": "perm-tool",
+                    "grant_time": "${now}"
+                  },
+                  "scopes": [
+                    {"value": "A", "label": "全部数据"},
+                    {"value": "D", "label": "本部门"},
+                    {"value": "O", "label": "仅本人"}
+                  ],
+                  "permissions": [
+                    {"value": "VIEW", "label": "查询"},
+                    {"value": "EDIT", "label": "编辑"},
+                    {"value": "DEL",  "label": "删除"}
+                  ]
+                },
+                {
+                  "code": "role_grant",
+                  "name": "角色授权表",
+                  "tableName": "role_grant",
+                  "fields": {
+                    "personId": "staff_no",
+                    "personName": "staff_name",
+                    "scope": "data_range",
+                    "permission": "auth_lvl"
+                  },
+                  "otherFields": {
+                    "channel": "perm-tool",
+                    "memo": "${personId}-${personName}"
+                  },
+                  "scopes": [
+                    {"value": "1", "label": "全部数据"},
+                    {"value": "2", "label": "本部门"},
+                    {"value": "3", "label": "仅本人"}
+                  ],
+                  "permissions": [
+                    {"value": "10", "label": "查询"},
+                    {"value": "20", "label": "编辑"},
+                    {"value": "30", "label": "审批"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "code": "test",
+          "name": "测试环境",
+          "databases": [
+            {
+              "code": "erp-test-db",
+              "name": "ERP测试库(SQLite)",
+              "jdbcUrl": "jdbc:sqlite:./data/sqlite/erp-test.db",
+              "driverClassName": "org.sqlite.JDBC",
+              "autoInit": true,
+              "permissionTables": [
+                {
+                  "code": "user_perm",
+                  "name": "用户权限表",
+                  "tableName": "auth_user_perm",
+                  "fields": {
+                    "personId": "uid",
+                    "personName": "uname",
+                    "scope": "scope_lv",
+                    "permission": "perm_cd"
+                  },
+                  "otherFields": {
+                    "tenant": "T001",
+                    "grant_by": "perm-tool",
+                    "grant_time": "${now}"
+                  },
+                  "scopes": [
+                    {"value": "A", "label": "全部数据"},
+                    {"value": "D", "label": "本部门"}
+                  ],
+                  "permissions": [
+                    {"value": "VIEW", "label": "查询"},
+                    {"value": "EDIT", "label": "编辑"}
+                  ]
+                },
+                {
+                  "code": "role_grant",
+                  "name": "角色授权表",
+                  "tableName": "role_grant",
+                  "fields": {
+                    "personId": "staff_no",
+                    "personName": "staff_name",
+                    "scope": "data_range",
+                    "permission": "auth_lvl"
+                  },
+                  "otherFields": {
+                    "channel": "perm-tool"
+                  },
+                  "scopes": [
+                    {"value": "1", "label": "全部数据"},
+                    {"value": "2", "label": "本部门"}
+                  ],
+                  "permissions": [
+                    {"value": "10", "label": "查询"},
+                    {"value": "20", "label": "编辑"},
+                    {"value": "30", "label": "审批"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "code": "prod",
+          "name": "生产环境",
+          "databases": [
+            {
+              "code": "erp-prod-db",
+              "name": "ERP生产库(SQLite)",
+              "jdbcUrl": "jdbc:sqlite:./data/sqlite/erp-prod.db",
+              "driverClassName": "org.sqlite.JDBC",
+              "autoInit": true,
+              "permissionTables": [
+                {
+                  "code": "sys_permission",
+                  "name": "系统权限表",
+                  "tableName": "sys_permission",
+                  "fields": {
+                    "personId": "operator_id",
+                    "personName": "operator_name",
+                    "scope": "area_code",
+                    "permission": "perm_flag"
+                  },
+                  "otherFields": {
+                    "src": "perm-tool",
+                    "updated_at": "${now}"
+                  },
+                  "scopes": [
+                    {"value": "ALL",  "label": "全部数据"},
+                    {"value": "PART", "label": "部分数据"},
+                    {"value": "SELF", "label": "仅本人"}
+                  ],
+                  "permissions": [
+                    {"value": "SEL", "label": "查询"},
+                    {"value": "UPD", "label": "编辑"},
+                    {"value": "EXP", "label": "导出"}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ]
 }

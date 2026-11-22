@@ -155,7 +155,7 @@ perm-admin/
 
 - JDK 26 运行，`maven.compiler.release=17`；Maven 3.9.16 在 `D:\WorkProject\.tools\apache-maven-3.9.16`（阿里云镜像已配），构建命令：
   `JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" D:/WorkProject/.tools/apache-maven-3.9.16/bin/mvn -f backend/pom.xml <goal>`
-- Spring Boot 3.5.7；`mybatis-plus-spring-boot3-starter`（动态查询主要走 JdbcTemplate，MP 作主库/演示库 ORM）；驱动：mysql-connector-j、postgresql、mssql-jdbc、ojdbc11、H2。
+- Spring Boot 3.5.7；`mybatis-plus-spring-boot3-starter`（动态查询主要走 JdbcTemplate，MP 作主库/演示库 ORM）；驱动：mysql-connector-j、postgresql、mssql-jdbc、ojdbc11、H2、sqlite-jdbc。
 - 动态数据源：按 database.code 懒建 HikariDataSource 缓存；演示库（autoInit）同时注册为 Spring 主 DataSource。
 - 不用 Lombok；DTO 用 record/简单类。
 - 配置文件路径：env `PERM_CONFIG` 优先，否则 `../config/permissions.json`（相对 backend 工作目录）。
@@ -175,7 +175,7 @@ JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" \
 cd frontend && npm install && npm run dev
 ```
 
-打开 http://localhost:5173 即可使用；demo 配置自带两个 H2 演示库（autoInit 自动建表灌数），无需外部数据库。
+打开 http://localhost:5173 即可使用；demo 配置自带两个 H2 演示库、erp 项目自带三个 SQLite 演示库（`backend/data/sqlite/*.db`，autoInit 自动建库建表灌数），均无需外部数据库。
 
 ## 已实现要点（初版）
 
@@ -188,8 +188,8 @@ cd frontend && npm install && npm run dev
 
 ## 已知限制（原型）
 
-- `LIMIT 500` 分页写法兼容 H2/MySQL/PG；MSSQL/Oracle 需方言化。
-- autoInit 建表语法仅适用 H2/MySQL（仅用于内置演示）。
+- `LIMIT 500` 分页写法兼容 H2/MySQL/PG/SQLite；MSSQL/Oracle 需方言化。
+- autoInit 建表语法适配 H2/MySQL/SQLite（`AUTOINCREMENT`），仅用于内置演示。
 - `${now}` 以时间戳字符串传参，严格类型列可能需 CAST。
 - `database.code` 必须全局唯一（execute 按 dbCode 定位数据源）。
 - 删除按 personId+scope+permission(+personName) 条件匹配，与该唯一性约定一致。

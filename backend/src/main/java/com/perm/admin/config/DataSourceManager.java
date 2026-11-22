@@ -127,8 +127,9 @@ public class DataSourceManager {
 
     private void autoInitDatabase(DataSource ds, DatabaseNode db) throws Exception {
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
+            boolean sqlite = db.jdbcUrl != null && db.jdbcUrl.contains(":sqlite:");
             for (PermTable t : db.permissionTables) {
-                st.execute(buildDdl(t));
+                st.execute(buildDdl(t, sqlite));
                 long count;
                 try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + t.tableName)) {
                     rs.next();
@@ -146,7 +147,7 @@ public class DataSourceManager {
      * CREATE TABLE IF NOT EXISTS：id 自增主键 + 映射字段 VARCHAR + otherFields 列
      * （占位符含 ${now} 的列用 TIMESTAMP，其余 VARCHAR(255)）。
      */
-    private String buildDdl(PermTable t) {
+    private String buildDdl(PermTable t, boolean sqlite) {
         Map<String, String> cols = new LinkedHashMap<>();
         cols.put(t.fields.personId, "VARCHAR(64)");
         if (t.fields.personName != null && !t.fields.personName.isBlank()) {
@@ -160,7 +161,8 @@ public class DataSourceManager {
         }
         StringBuilder ddl = new StringBuilder();
         ddl.append("CREATE TABLE IF NOT EXISTS ").append(t.tableName)
-           .append(" (id BIGINT AUTO_INCREMENT PRIMARY KEY");
+           .append(sqlite ? " (id INTEGER PRIMARY KEY AUTOINCREMENT"
+                          : " (id BIGINT AUTO_INCREMENT PRIMARY KEY");
         cols.forEach((col, type) -> ddl.append(", ").append(col).append(' ').append(type));
         ddl.append(')');
         return ddl.toString();
