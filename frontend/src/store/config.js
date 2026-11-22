@@ -34,6 +34,31 @@ export function eachTable(fn) {
   }
 }
 
+/**
+ * 打平配置树为 (database, permissionTable) 目标条目列表。
+ * 每条带完整祖先级 code/name + 该表支持的权限/范围 label 集合，
+ * 供新增权限页的级联过滤与"全部已选 label 可满足"判定使用。
+ */
+export function collectTableEntries() {
+  const list = []
+  eachTable((t, { project: p, environment: e, database: d }) => {
+    list.push({
+      project: p.code,
+      projectName: p.name,
+      env: e.code,
+      envName: e.name,
+      db: d.code,
+      dbName: d.name,
+      tableCode: t.code,
+      tableName: t.tableName,
+      tableTitle: t.name,
+      permLabels: new Set((t.permissions || []).map((o) => o.label)),
+      scopeLabels: new Set((t.scopes || []).map((o) => o.label))
+    })
+  })
+  return list
+}
+
 /** 全配置去重的权限显示名 */
 export function collectPermissionLabels() {
   const set = new Set()

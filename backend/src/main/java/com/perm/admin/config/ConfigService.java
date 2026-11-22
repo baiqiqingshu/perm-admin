@@ -145,6 +145,42 @@ public class ConfigService {
     }
 
     /**
+     * 多值版本的目标表解析（insert 新契约 targets）：每级 code 列表为空/缺省表示该级不筛选；
+     * 不抛异常，全部不匹配时返回空列表（由调用方决定返回空结果）。
+     */
+    public List<ResolvedTable> resolveTablesMulti(List<String> projectCodes, List<String> envCodes,
+                                                  List<String> dbCodes, List<String> tableCodes) {
+        List<ResolvedTable> out = new ArrayList<>();
+        for (Project p : config.projects) {
+            if (!matchAny(projectCodes, p.code)) {
+                continue;
+            }
+            for (EnvNode e : p.environments) {
+                if (!matchAny(envCodes, e.code)) {
+                    continue;
+                }
+                for (DatabaseNode d : e.databases) {
+                    if (!matchAny(dbCodes, d.code)) {
+                        continue;
+                    }
+                    for (PermTable t : d.permissionTables) {
+                        if (!matchAny(tableCodes, t.code)) {
+                            continue;
+                        }
+                        out.add(new ResolvedTable(p, e, d, t));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** codes 为 null/空 -> 不筛选；否则 code 需命中其中之一。 */
+    private static boolean matchAny(List<String> codes, String code) {
+        return codes == null || codes.isEmpty() || codes.contains(code);
+    }
+
+    /**
      * 在整棵树里按 database.code 找数据源配置（execute 按 dbCode 定位连接）。
      */
     public Optional<DatabaseNode> findDatabase(String dbCode) {

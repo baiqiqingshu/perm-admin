@@ -17,9 +17,13 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * 权限查询 / SQL 预览 / SQL 执行。
@@ -49,8 +53,15 @@ public class PermissionService {
     }
 
     public record PreviewRequest(String type, String project, String environment, String database,
-                                 String tableCode, List<DeleteItem> items, List<Person> persons,
-                                 List<String> permissions, List<String> scopes) {
+                                 String tableCode, Targets targets,
+                                 List<DeleteItem> items, List<Person> persons,
+                                 List<String> permissions, List<String> scopes,
+                                 List<String> permissionLabels, List<String> scopeLabels) {
+    }
+
+    /** insert 新契约的目标过滤：各级均为可选多选，空/缺省 = 该级不筛选。 */
+    public record Targets(List<String> projects, List<String> environments,
+                          List<String> databases, List<String> tableCodes) {
     }
 
     public record DeleteItem(String project, String environment, String database, String tableCode,
@@ -225,28 +236,176 @@ public class PermissionService {
         return Map.of("groups", toGroupDtos(groups));
     }
 
+    /**
+     * insert 预览（iter2 新契约 + 旧契约兼容）：
+     * - 目标表 = targets 各级多选过滤（缺省/空 = 不筛选）命中的全部 (database, table)；
+     *   旧字段 project/environment/database/tableCode 存在时视为该级单元素 targets 并优先。
+     * - 权限/范围：旧字段 permissions/scopes（裸 value）存在时优先直接用 value；
+     *   否则 permissionLabels/scopeLabels 按各表配置翻译 value，表内无该 label -> 记入 unsupported。
+     * - 去重：每表先查 personF IN (...) 的已有 (personId, scopeValue, permissionValue) 三元组，
+     *   已存在 -> 记入 skipped 不生成 INSERT；查询失败记 errors 并照常生成（不整体失败）。
+     * - persons 为空/无目标表/全部 label 不受支持 -> 200 + 空 groups（persons 字段缺失才 400）。
+     */
     private Map<String, Object> previewInsert(PreviewRequest req) {
-        ResolvedTable rt = resolveUnique(req.project(), req.environment(), req.database(), req.tableCode());
-        if (req.persons() == null || req.persons().isEmpty()) {
+        if (req.persons() == null) {
             throw ApiException.badRequest("新增预览 persons 不能为空");
         }
-        if (req.permissions() == null || req.permissions().isEmpty()) {
-            throw ApiException.badRequest("新增预览 permissions 不能为空");
+        // 旧字段（裸 value）存在时优先；否则用 label 列表
+        boolean rawPerm = req.permissions() != null;
+        boolean rawScope = req.scopes() != null;
+        List<String> permReqs = rawPerm ? req.permissions() : req.permissionLabels();
+        List<String> scopeReqs = rawScope ? req.scopes() : req.scopeLabels();
+        if (permReqs == null) {
+            throw ApiException.badRequest("新增预览 permissions 或 permissionLabels 必填");
         }
-        if (req.scopes() == null || req.scopes().isEmpty()) {
-            throw ApiException.badRequest("新增预览 scopes 不能为空");
+        if (scopeReqs == null) {
+            throw ApiException.badRequest("新增预览 scopes 或 scopeLabels 必填");
         }
+
+        List<ResolvedTable> targets = resolveTargets(req);
+        List<String> personIds = req.persons().stream()
+                .map(Person::id).filter(Objects::nonNull).distinct().toList();
+
         Map<String, GroupAcc> groups = new LinkedHashMap<>();
-        GroupAcc acc = acc(groups, rt);
-        for (Person person : req.persons()) {
-            for (String perm : req.permissions()) {
-                for (String scope : req.scopes()) {
-                    acc.statements.add(SqlBuilder.buildInsert(rt.table(), person.id(),
-                            person.name(), scope, perm));
+        List<Map<String, Object>> skipped = new ArrayList<>();
+        List<Map<String, Object>> unsupported = new ArrayList<>();
+        List<Map<String, Object>> errors = new ArrayList<>();
+
+        for (ResolvedTable rt : targets) {
+            PermTable t = rt.table();
+            String dbCode = rt.database().code;
+            String tableName = t.tableName;
+
+            List<Sel> perms = resolveOptions(t.permissions, permReqs, rawPerm,
+                    dbCode, tableName, "permission", unsupported);
+            List<Sel> scopes = resolveOptions(t.scopes, scopeReqs, rawScope,
+                    dbCode, tableName, "scope", unsupported);
+            if (perms.isEmpty() || scopes.isEmpty() || req.persons().isEmpty()) {
+                continue;
+            }
+
+            Set<List<String>> existing;
+            try {
+                existing = loadExisting(rt, personIds);
+            } catch (Exception e) {
+                log.warn("去重查询失败 {}.{}: {}", dbCode, tableName, e.getMessage());
+                errors.add(entry("dbCode", dbCode, "tableName", tableName, "error", msg(e)));
+                existing = Set.of();
+            }
+
+            GroupAcc acc = null;
+            for (Person person : req.persons()) {
+                for (Sel perm : perms) {
+                    for (Sel scope : scopes) {
+                        if (existing.contains(Arrays.asList(person.id(), scope.value(), perm.value()))) {
+                            skipped.add(entry("dbCode", dbCode, "tableName", tableName,
+                                    "personId", person.id(),
+                                    "permissionLabel", perm.display(), "scopeLabel", scope.display()));
+                            continue;
+                        }
+                        if (acc == null) {
+                            acc = acc(groups, rt);
+                        }
+                        acc.statements.add(SqlBuilder.buildInsert(t, person.id(),
+                                person.name(), scope.value(), perm.value()));
+                    }
                 }
             }
         }
-        return Map.of("groups", toGroupDtos(groups));
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("groups", toGroupDtos(groups));
+        resp.put("skipped", skipped);
+        resp.put("unsupported", unsupported);
+        resp.put("errors", errors);
+        return resp;
+    }
+
+    /** 已选中的 权限/范围 项：display 用于 skipped 回填（label 或裸 value），value 为实际存储值。 */
+    private record Sel(String display, String value) {
+    }
+
+    /**
+     * 把请求的 label（或裸 value）列表按某张表的配置翻译为实际 value 列表；
+     * label 模式下表内无该 label -> 记 unsupported 并跳过该 label。
+     */
+    private List<Sel> resolveOptions(List<Option> options, List<String> requested, boolean raw,
+                                     String dbCode, String tableName, String type,
+                                     List<Map<String, Object>> unsupported) {
+        List<Sel> out = new ArrayList<>();
+        for (String req : requested) {
+            if (raw) {
+                out.add(new Sel(req, req));
+                continue;
+            }
+            String value = valueOfLabel(options, req);
+            if (value == null) {
+                unsupported.add(entry("dbCode", dbCode, "tableName", tableName,
+                        "type", type, "label", req));
+            } else {
+                out.add(new Sel(req, value));
+            }
+        }
+        return out;
+    }
+
+    /** label -> value（仅匹配 label，不匹配 raw value）；无此 label 返回 null。 */
+    private String valueOfLabel(List<Option> options, String label) {
+        if (label == null) {
+            return null;
+        }
+        for (Option o : options) {
+            if (label.equals(o.label)) {
+                return o.value;
+            }
+        }
+        return null;
+    }
+
+    /** 合并 targets 与旧单值字段：旧字段存在时优先作为该级单元素列表。 */
+    private List<ResolvedTable> resolveTargets(PreviewRequest req) {
+        Targets t = req.targets();
+        List<String> projects = hasText(req.project()) ? List.of(req.project())
+                : (t != null ? t.projects() : null);
+        List<String> envs = hasText(req.environment()) ? List.of(req.environment())
+                : (t != null ? t.environments() : null);
+        List<String> dbs = hasText(req.database()) ? List.of(req.database())
+                : (t != null ? t.databases() : null);
+        List<String> tables = hasText(req.tableCode()) ? List.of(req.tableCode())
+                : (t != null ? t.tableCodes() : null);
+        return configService.resolveTablesMulti(projects, envs, dbs, tables);
+    }
+
+    /**
+     * 查某表已有 (personId, scopeValue, permissionValue) 三元组：
+     * SELECT personF, scopeF, permF FROM t WHERE personF IN (?, ...)。
+     */
+    private Set<List<String>> loadExisting(ResolvedTable rt, List<String> personIds) {
+        Set<List<String>> existing = new HashSet<>();
+        if (personIds.isEmpty()) {
+            return existing;
+        }
+        PermTable t = rt.table();
+        FieldMapping f = t.fields;
+        String marks = String.join(", ", personIds.stream().map(id -> "?").toList());
+        String sql = "SELECT " + f.personId + ", " + f.scope + ", " + f.permission
+                + " FROM " + t.tableName + " WHERE " + f.personId + " IN (" + marks + ")";
+        DataSource ds = dataSourceManager.get(rt.database().code);
+        JdbcTemplate jt = new JdbcTemplate(ds);
+        List<List<String>> rows = jt.query(sql,
+                (rs, rowNum) -> Arrays.asList(rs.getString(1), rs.getString(2), rs.getString(3)),
+                personIds.toArray());
+        existing.addAll(rows);
+        return existing;
+    }
+
+    /** 构造有序 map 响应条目（成对的 key/value 参数）。 */
+    private static Map<String, Object> entry(Object... kv) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            m.put((String) kv[i], kv[i + 1]);
+        }
+        return m;
     }
 
     private ResolvedTable resolveUnique(String project, String env, String db, String tableCode) {
