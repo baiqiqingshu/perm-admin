@@ -86,6 +86,7 @@
       </el-alert>
 
       <el-table
+        ref="tableRef"
         v-loading="loading"
         :data="rows"
         stripe
@@ -129,6 +130,16 @@
       :executing="executing"
       @confirm="onConfirmExecute"
     />
+
+    <ExecuteResultDialog
+      v-model="resultVisible"
+      :groups="previewGroups"
+      :skipped="previewSkipped"
+      :unsupported="previewUnsupported"
+      :errors="previewErrors"
+      :results="execResults"
+      @confirm="onResultDone"
+    />
   </div>
 </template>
 
@@ -137,7 +148,8 @@ import { reactive, ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import TableCascade from '../components/TableCascade.vue'
 import SqlPreviewDialog from '../components/SqlPreviewDialog.vue'
-import { queryPermissions, previewSql, executeSql } from '../api'
+import ExecuteResultDialog from '../components/ExecuteResultDialog.vue'
+import { queryPermissions, previewSql, executeSql, extractErrorMessage } from '../api'
 import { loadConfig, collectPermissionLabels, collectScopeLabels } from '../store/config'
 
 const cascade = reactive({ project: '', environment: '', database: '', tableCode: '' })
@@ -147,6 +159,7 @@ const rows = ref([])
 const errors = ref([])
 const loading = ref(false)
 const selection = ref([])
+const tableRef = ref()
 
 const dialogVisible = ref(false)
 const previewGroups = ref([])
@@ -155,6 +168,9 @@ const previewUnsupported = ref([])
 const previewErrors = ref([])
 const executing = ref(false)
 const previewing = ref(false)
+
+const resultVisible = ref(false)
+const execResults = ref([])
 
 const permissionLabelOptions = computed(() => collectPermissionLabels())
 const scopeLabelOptions = computed(() => collectScopeLabels())
@@ -234,22 +250,32 @@ function onBatchDelete() {
 
 async function onConfirmExecute(groups) {
   executing.value = true
+  let results
   try {
     const data = await executeSql({ groups })
-    const results = data?.results || []
-    if (!results.length) ElMessage.info('执行完成')
-    for (const r of results) {
-      if (r.success) {
-        ElMessage.success(`${r.key}：执行成功，影响 ${r.rows ?? 0} 行`)
-      } else {
-        ElMessage.error(`${r.key}：执行失败 - ${r.error || '未知错误'}`)
-      }
-    }
-    dialogVisible.value = false
-    await doQuery()
+    results = data?.results || []
+  } catch (e) {
+    // execute 请求本身失败（网络错/500）：全部组按失败进结果弹窗
+    const msg = extractErrorMessage(e)
+    results = (groups || []).map((g) => ({
+      key: g.key,
+      success: false,
+      rows: 0,
+      error: msg
+    }))
   } finally {
     executing.value = false
   }
+  execResults.value = results
+  dialogVisible.value = false
+  resultVisible.value = true
+}
+
+/** 结果弹窗点「确定」后：刷新列表并清空已选 */
+async function onResultDone() {
+  selection.value = []
+  tableRef.value?.clearSelection()
+  await doQuery()
 }
 
 function formatError(e) {

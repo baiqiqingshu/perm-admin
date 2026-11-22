@@ -136,7 +136,9 @@
           <template v-if="skipped?.length">执行仅写入 {{ totalStatements }} 条新记录</template>
         </span>
         <div class="footer-btns">
-          <el-button @click="emit('update:modelValue', false)">取消</el-button>
+          <el-button :disabled="executing" @click="emit('update:modelValue', false)">
+            取消
+          </el-button>
           <el-button
             type="primary"
             :loading="executing"

@@ -184,7 +184,9 @@ cd frontend && npm install && npm run dev
 - 查询跨库打平返回；单表失败收集进 `errors` 不拖垮整体。
 - 删除/新增统一走"预览 SQL → 按数据源+表分组 → 逐组事务执行"；页面展示插值 SQL，执行走 prepared+params。
 - 新增为 人员×权限×范围 笛卡尔积；不带 id。
-- 配置热重载：POST /api/config/reload。
+- 新增支持 targets 四级多选目标（空=全部）+ 按 label 翻译 + 已有记录去重跳过（skipped/unsupported/errors 明细），详见 iter2-batch-add-redesign.md。
+- 批量执行结果统一确认弹窗（成功/失败/跳过/不支持分区），详见 iter3-execute-result.md。
+- 配置热重载：POST /api/config/reload；`.agents/skills/perm-config` skill + `scripts/add-perm-table.mjs` 辅助 agent 接入新表配置。
 
 ## 已知限制（原型）
 

@@ -1,4 +1,6 @@
-import request from './request'
+import request, { extractErrorMessage } from './request'
+
+export { extractErrorMessage }
 
 export function getConfig() {
   return request.get('/config')
@@ -17,5 +19,6 @@ export function previewSql(payload) {
 }
 
 export function executeSql(payload) {
-  return request.post('/sql/execute', payload)
+  // 失败由 ExecuteResultDialog 统一展示，拦截器不再弹 toast
+  return request.post('/sql/execute', payload, { silentError: true })
 }

@@ -264,6 +264,16 @@
       :executing="executing"
       @confirm="onConfirmExecute"
     />
+
+    <ExecuteResultDialog
+      v-model="resultVisible"
+      :groups="previewGroups"
+      :skipped="previewSkipped"
+      :unsupported="previewUnsupported"
+      :errors="previewErrors"
+      :results="execResults"
+      @confirm="onResultDone"
+    />
   </div>
 </template>
 
@@ -271,7 +281,8 @@
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import SqlPreviewDialog from '../components/SqlPreviewDialog.vue'
-import { previewSql, executeSql } from '../api'
+import ExecuteResultDialog from '../components/ExecuteResultDialog.vue'
+import { previewSql, executeSql, extractErrorMessage } from '../api'
 import { loadConfig, collectTableEntries } from '../store/config'
 
 const personsText = ref('')
@@ -288,6 +299,9 @@ const previewUnsupported = ref([])
 const previewErrors = ref([])
 const previewing = ref(false)
 const executing = ref(false)
+
+const resultVisible = ref(false)
+const execResults = ref([])
 
 onMounted(() => loadConfig())
 
@@ -555,26 +569,32 @@ async function onPreview() {
 
 async function onConfirmExecute(groups) {
   executing.value = true
+  let results
   try {
     const data = await executeSql({ groups })
-    const results = data?.results || []
-    const allOk = results.length > 0 && results.every((r) => r.success)
-    if (!results.length) ElMessage.info('执行完成')
-    for (const r of results) {
-      if (r.success) {
-        ElMessage.success(`${r.key}：执行成功，影响 ${r.rows ?? 0} 行`)
-      } else {
-        ElMessage.error(`${r.key}：执行失败 - ${r.error || '未知错误'}`)
-      }
-    }
-    dialogVisible.value = false
-    if (allOk) {
-      resetForm()
-      ElMessage.success('新增权限完成')
-    }
+    results = data?.results || []
+  } catch (e) {
+    // execute 请求本身失败（网络错/500）：全部组按失败进结果弹窗
+    const msg = extractErrorMessage(e)
+    results = (groups || []).map((g) => ({
+      key: g.key,
+      success: false,
+      rows: 0,
+      error: msg
+    }))
   } finally {
     executing.value = false
   }
+  execResults.value = results
+  dialogVisible.value = false
+  resultVisible.value = true
+}
+
+/** 结果弹窗点「确定」后：全部成功才重置表单（保持原逻辑，失败可修正重试） */
+function onResultDone() {
+  const allOk =
+    execResults.value.length > 0 && execResults.value.every((r) => r.success)
+  if (allOk) resetForm()
 }
 
 function resetForm() {

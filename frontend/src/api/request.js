@@ -6,18 +6,23 @@ const request = axios.create({
   timeout: 60000
 })
 
+/** 从 axios 错误中提取可读信息（与拦截器提示口径一致） */
+export function extractErrorMessage(error) {
+  const data = error?.response?.data
+  if (data) {
+    if (typeof data === 'string') return data
+    return data.error || data.message || JSON.stringify(data)
+  }
+  return error?.message || '请求失败'
+}
+
 request.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const data = error.response?.data
-    let msg = '请求失败'
-    if (data) {
-      if (typeof data === 'string') msg = data
-      else msg = data.error || data.message || JSON.stringify(data)
-    } else if (error.message) {
-      msg = error.message
+    // silentError：调用方自行接管错误展示（如执行结果弹窗），不再弹 toast
+    if (!error.config?.silentError) {
+      ElMessage.error(extractErrorMessage(error))
     }
-    ElMessage.error(msg)
     return Promise.reject(error)
   }
 )
