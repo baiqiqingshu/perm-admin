@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: perm-admin
+  autoconfigure:
+    exclude:
+      # 主 DataSource 由 DataSourceManager 动态注册，关闭默认数据源自动配置
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+
+logging:
+  level:
+    root: info
+    com.perm.admin: info
+    com.zaxxer.hikari: warn
+    com.baomidou: warn
+    org.apache.ibatis: warn
+    org.mybatis: warn
+    org.springframework.web: info

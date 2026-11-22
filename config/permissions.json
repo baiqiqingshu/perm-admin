@@ -1,0 +1,142 @@
+{
+  "projects": [
+    {
+      "code": "demo",
+      "name": "演示项目",
+      "environments": [
+        {
+          "code": "dev",
+          "name": "开发环境",
+          "databases": [
+            {
+              "code": "demo-dev-db",
+              "name": "演示库-开发",
+              "jdbcUrl": "jdbc:h2:file:./data/demo-dev",
+              "username": "sa",
+              "password": "",
+              "driverClassName": "org.h2.Driver",
+              "autoInit": true,
+              "permissionTables": [
+                {
+                  "code": "user_perm",
+                  "name": "用户权限表",
+                  "tableName": "t_user_permission",
+                  "fields": {
+                    "personId": "user_no",
+                    "personName": "user_name",
+                    "scope": "data_scope",
+                    "permission": "perm_type"
+                  },
+                  "otherFields": {
+                    "create_by": "perm-tool",
+                    "create_time": "${now}",
+                    "remark": "${personId}"
+                  },
+                  "scopes": [
+                    {"value": "ALL",  "label": "全部数据"},
+                    {"value": "DEPT", "label": "本部门"},
+                    {"value": "SELF", "label": "仅本人"}
+                  ],
+                  "permissions": [
+                    {"value": "R", "label": "查询"},
+                    {"value": "W", "label": "编辑"},
+                    {"value": "D", "label": "删除"}
+                  ]
+                },
+                {
+                  "code": "emp_auth",
+                  "name": "员工授权表",
+                  "tableName": "t_emp_auth",
+                  "fields": {
+                    "personId": "emp_id",
+                    "personName": "emp_name",
+                    "scope": "range_code",
+                    "permission": "auth_type"
+                  },
+                  "otherFields": {
+                    "created_by": "perm-tool",
+                    "created_at": "${now}",
+                    "note": "${personId}-${personName}"
+                  },
+                  "scopes": [
+                    {"value": "GLOBAL", "label": "全部数据"},
+                    {"value": "ORG",    "label": "本部门"},
+                    {"value": "OWN",    "label": "仅本人"}
+                  ],
+                  "permissions": [
+                    {"value": "Q", "label": "查询"},
+                    {"value": "U", "label": "编辑"},
+                    {"value": "X", "label": "导出"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "code": "test",
+          "name": "测试环境",
+          "databases": [
+            {
+              "code": "demo-test-db",
+              "name": "演示库-测试",
+              "jdbcUrl": "jdbc:h2:file:./data/demo-test",
+              "username": "sa",
+              "password": "",
+              "autoInit": true,
+              "permissionTables": [
+                {
+                  "code": "user_perm",
+                  "name": "用户权限表",
+                  "tableName": "t_user_permission",
+                  "fields": {
+                    "personId": "user_no",
+                    "personName": "user_name",
+                    "scope": "data_scope",
+                    "permission": "perm_type"
+                  },
+                  "otherFields": {
+                    "create_by": "perm-tool",
+                    "create_time": "${now}"
+                  },
+                  "scopes": [
+                    {"value": "ALL",  "label": "全部数据"},
+                    {"value": "DEPT", "label": "本部门"}
+                  ],
+                  "permissions": [
+                    {"value": "R", "label": "查询"},
+                    {"value": "W", "label": "编辑"}
+                  ]
+                },
+                {
+                  "code": "emp_auth",
+                  "name": "员工授权表",
+                  "tableName": "t_emp_auth",
+                  "fields": {
+                    "personId": "emp_id",
+                    "personName": "emp_name",
+                    "scope": "range_code",
+                    "permission": "auth_type"
+                  },
+                  "otherFields": {
+                    "created_by": "perm-tool",
+                    "created_at": "${now}"
+                  },
+                  "scopes": [
+                    {"value": "GLOBAL", "label": "全部数据"},
+                    {"value": "ORG",    "label": "本部门"}
+                  ],
+                  "permissions": [
+                    {"value": "Q", "label": "查询"},
+                    {"value": "U", "label": "编辑"},
+                    {"value": "A", "label": "审批"}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
