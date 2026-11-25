@@ -88,6 +88,9 @@ function onRefresh() {
   min-height: 100%;
   display: flex;
   flex-direction: column;
+  --layout-content-max: 1680px;
+  --layout-gutter: clamp(16px, 2.5vw, 32px);
+  --layout-shell-max: calc(var(--layout-content-max) + var(--layout-gutter) + var(--layout-gutter));
 }
 
 /* 磨砂玻璃顶栏 */
@@ -101,9 +104,11 @@ function onRefresh() {
   border-bottom: 1px solid rgba(216, 222, 232, 0.7);
 }
 .topbar-inner {
-  max-width: 1240px;
+  width: 100%;
+  max-width: var(--layout-shell-max);
+  box-sizing: border-box;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--layout-gutter);
   height: 60px;
   display: flex;
   align-items: center;
@@ -220,11 +225,14 @@ function onRefresh() {
 
 .main {
   flex: 1;
-  padding: 20px 24px 40px;
+  padding: 20px 0 40px;
 }
 .main-inner {
-  max-width: 1240px;
+  width: 100%;
+  max-width: var(--layout-shell-max);
+  box-sizing: border-box;
   margin: 0 auto;
+  padding: 0 var(--layout-gutter);
 }
 
 @media (max-width: 720px) {
@@ -233,10 +241,25 @@ function onRefresh() {
   }
   .topbar-inner {
     gap: 12px;
-    padding: 0 16px;
   }
   .main {
-    padding: 16px 12px 32px;
+    padding: 16px 0 32px;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar-inner {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

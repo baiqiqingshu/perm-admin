@@ -185,16 +185,16 @@ node scripts/add-perm-table.mjs --config /tmp/copy.json --file snippet.json  # �
 ### Step 5 重载 + 验证
 
 ```bash
-# 热重载配置（后端默认 8080）
-curl -X POST http://localhost:8080/api/config/reload
+# 热重载配置（后端默认 18917）
+curl -X POST http://localhost:18917/api/config/reload
 
 # 验证 1：新表能查出数据
-curl -X POST http://localhost:8080/api/permissions/query \
+curl -X POST http://localhost:18917/api/permissions/query \
   -H "Content-Type: application/json" \
   -d '{"project":"<project>","environment":"<env>","database":"<db>","tableCode":"<table>"}'
 
 # 验证 2：按 label 筛选能命中该表（label 翻译正确）
-curl -X POST http://localhost:8080/api/permissions/query \
+curl -X POST http://localhost:18917/api/permissions/query \
   -H "Content-Type: application/json" \
   -d '{"database":"<db>","tableCode":"<table>","permissionLabel":"查询","scopeLabel":"全部数据"}'
 ```

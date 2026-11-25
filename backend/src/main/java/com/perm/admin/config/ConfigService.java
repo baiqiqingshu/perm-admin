@@ -11,9 +11,12 @@ import com.perm.admin.config.ConfigModel.Project;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -23,17 +26,26 @@ import java.util.Optional;
 
 /**
  * 加载/重载权限配置，并提供按 code 解析树的工具方法。
- * 路径规则：环境变量 PERM_CONFIG 优先，否则 ../config/permissions.json（相对工作目录）。
+ * 路径解析顺序（打包成 exe 后，"exe 同目录的 permissions.json"即为默认配置位置）：
+ * PERM_CONFIG 环境变量 > perm.config 属性(-D/--perm.config) >
+ * ./permissions.json > ./config/permissions.json > ../config/permissions.json >
+ * jpackage.app-path 旁 permissions.json > classpath:/permissions.json（jar 内置默认配置兜底）。
  */
 @Service
 public class ConfigService {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigService.class);
+    private static final String CLASSPATH_DEFAULT = "/permissions.json";
 
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Environment environment;
 
     private volatile ConfigModel config = new ConfigModel();
     private volatile Path configPath;
+
+    public ConfigService(Environment environment) {
+        this.environment = environment;
+    }
 
     /** 解析后的权限表 + 其所属上下文 */
     public record ResolvedTable(Project project, EnvNode environment, DatabaseNode database, PermTable table) {
@@ -45,24 +57,65 @@ public class ConfigService {
     }
 
     public synchronized void load() {
-        String env = System.getenv("PERM_CONFIG");
-        Path p = (env != null && !env.isBlank())
-                ? Path.of(env).toAbsolutePath().normalize()
-                : Path.of("..", "config", "permissions.json").toAbsolutePath().normalize();
+        Path p = resolveConfigPath();
         try {
-            this.config = mapper.readValue(p.toFile(), ConfigModel.class);
-            this.configPath = p;
-            log.info("权限配置加载成功: {}", p);
+            if (p != null) {
+                this.config = mapper.readValue(p.toFile(), ConfigModel.class);
+                this.configPath = p;
+                log.info("权限配置加载成功: {}", p);
+            } else {
+                try (InputStream in = ConfigService.class.getResourceAsStream(CLASSPATH_DEFAULT)) {
+                    if (in == null) {
+                        throw new ApiException(500, "权限配置加载失败: 未找到 permissions.json");
+                    }
+                    this.config = mapper.readValue(in, ConfigModel.class);
+                    this.configPath = null;
+                    log.info("使用 jar 内置默认权限配置 classpath:{}", CLASSPATH_DEFAULT);
+                }
+            }
         } catch (IOException e) {
-            log.error("权限配置加载失败: {} - {}", p, e.getMessage());
-            throw new ApiException(500, "权限配置加载失败: " + p + " - " + e.getMessage());
+            String src = p != null ? p.toString() : "classpath:" + CLASSPATH_DEFAULT;
+            log.error("权限配置加载失败: {} - {}", src, e.getMessage());
+            throw new ApiException(500, "权限配置加载失败: " + src + " - " + e.getMessage());
         }
+    }
+
+    /**
+     * 解析外置配置路径；显式指定（env/属性）的路径即使不存在也返回（读文件时报错），
+     * 隐式候选只返回实际存在的文件；全部不命中返回 null（走 classpath 兜底）。
+     */
+    private Path resolveConfigPath() {
+        String env = System.getenv("PERM_CONFIG");
+        if (hasText(env)) {
+            return Path.of(env).toAbsolutePath().normalize();
+        }
+        String prop = environment.getProperty("perm.config");
+        if (hasText(prop)) {
+            return Path.of(prop).toAbsolutePath().normalize();
+        }
+        for (String candidate : new String[]{"permissions.json", "config/permissions.json", "../config/permissions.json"}) {
+            Path p = Path.of(candidate).toAbsolutePath().normalize();
+            if (Files.isRegularFile(p)) {
+                return p;
+            }
+        }
+        // jpackage 启动器写入 jpackage.app-path=exe 全路径；自解压壳会改工作目录，
+        // 兜底用 exe 所在目录找配置（EVB 壳内为虚拟路径，不影响外置文件读取顺序）
+        String appPath = System.getProperty("jpackage.app-path");
+        if (hasText(appPath)) {
+            Path p = Path.of(appPath).toAbsolutePath().normalize().getParent().resolve("permissions.json");
+            if (Files.isRegularFile(p)) {
+                return p;
+            }
+        }
+        return null;
     }
 
     public ConfigModel config() {
         return config;
     }
 
+    /** 外置配置文件路径；使用 jar 内置默认配置时为 null。 */
     public Path configPath() {
         return configPath;
     }

@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,7 +50,10 @@ public class PermissionService {
     // ---------- DTO ----------
 
     public record QueryRequest(String project, String environment, String database, String tableCode,
-                               String permissionLabel, String scopeLabel, String keyword) {
+                               String permissionLabel, String scopeLabel, String keyword,
+                               List<String> projects, List<String> environments,
+                               List<String> databases, List<String> tableCodes,
+                               List<String> permissionLabels, List<String> scopeLabels) {
     }
 
     public record PreviewRequest(String type, String project, String environment, String database,
@@ -88,8 +92,7 @@ public class PermissionService {
     // ---------- 查询 ----------
 
     public Map<String, Object> query(QueryRequest req) {
-        List<ResolvedTable> targets = configService.resolveTables(
-                req.project(), req.environment(), req.database(), req.tableCode());
+        List<ResolvedTable> targets = resolveQueryTargets(req);
         List<Map<String, Object>> rows = new ArrayList<>();
         List<Map<String, Object>> errors = new ArrayList<>();
         for (ResolvedTable rt : targets) {
@@ -114,12 +117,14 @@ public class PermissionService {
         FieldMapping f = t.fields;
 
         // label -> 该表实际存储 value；该表无此 label 且 value 也不匹配则跳过该表
-        String permFilter = translateFilter(t.permissions, req.permissionLabel());
-        if (SKIP_TABLE.equals(permFilter)) {
+        List<String> permFilters = translateFilters(t.permissions,
+                singleOrMulti(req.permissionLabel(), req.permissionLabels()));
+        if (permFilters != null && permFilters.isEmpty()) {
             return List.of();
         }
-        String scopeFilter = translateFilter(t.scopes, req.scopeLabel());
-        if (SKIP_TABLE.equals(scopeFilter)) {
+        List<String> scopeFilters = translateFilters(t.scopes,
+                singleOrMulti(req.scopeLabel(), req.scopeLabels()));
+        if (scopeFilters != null && scopeFilters.isEmpty()) {
             return List.of();
         }
 
@@ -141,13 +146,17 @@ public class PermissionService {
             }
             sql.append(')');
         }
-        if (permFilter != null) {
-            sql.append(" AND ").append(f.permission).append(" = ?");
-            params.add(permFilter);
+        if (permFilters != null) {
+            sql.append(" AND ").append(f.permission).append(" IN (")
+                    .append(String.join(", ", permFilters.stream().map(v -> "?").toList()))
+                    .append(")");
+            params.addAll(permFilters);
         }
-        if (scopeFilter != null) {
-            sql.append(" AND ").append(f.scope).append(" = ?");
-            params.add(scopeFilter);
+        if (scopeFilters != null) {
+            sql.append(" AND ").append(f.scope).append(" IN (")
+                    .append(String.join(", ", scopeFilters.stream().map(v -> "?").toList()))
+                    .append(")");
+            params.addAll(scopeFilters);
         }
         sql.append(" LIMIT ").append(MAX_ROWS_PER_TABLE);
 
@@ -175,6 +184,48 @@ public class PermissionService {
         }, params.toArray());
     }
 
+    private List<ResolvedTable> resolveQueryTargets(QueryRequest req) {
+        return configService.resolveTablesMulti(
+                singleOrMulti(req.project(), req.projects()),
+                singleOrMulti(req.environment(), req.environments()),
+                singleOrMulti(req.database(), req.databases()),
+                singleOrMulti(req.tableCode(), req.tableCodes()));
+    }
+
+    private List<String> singleOrMulti(String single, List<String> multi) {
+        if (hasText(single)) {
+            return List.of(single.trim());
+        }
+        return normalizeFilterValues(multi);
+    }
+
+    private List<String> normalizeFilterValues(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String value : values) {
+            if (hasText(value)) {
+                normalized.add(value.trim());
+            }
+        }
+        return normalized.isEmpty() ? null : new ArrayList<>(normalized);
+    }
+
+    private List<String> translateFilters(List<Option> options, List<String> filters) {
+        if (filters == null || filters.isEmpty()) {
+            return null;
+        }
+        Set<String> translatedValues = new LinkedHashSet<>();
+        for (String filter : filters) {
+            String translated = translateFilter(options, filter);
+            if (translated != null && !SKIP_TABLE.equals(translated)) {
+                translatedValues.add(translated);
+            }
+        }
+        return new ArrayList<>(translatedValues);
+    }
+
     /**
      * 过滤值翻译：null/空白 -> 不过滤(返回 null)；匹配到 label 或 value -> 返回实际 value；
      * 否则返回 SKIP_TABLE 跳过该表。
@@ -182,6 +233,9 @@ public class PermissionService {
     private String translateFilter(List<Option> options, String filter) {
         if (!hasText(filter)) {
             return null;
+        }
+        if (options == null) {
+            return SKIP_TABLE;
         }
         for (Option o : options) {
             if (filter.equals(o.label)) {

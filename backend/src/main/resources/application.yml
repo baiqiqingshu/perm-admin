@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  # 冷门端口减少撞车；可用 --server.port= 覆盖
+  port: 18917
 
 spring:
   application:
@@ -17,7 +18,4 @@ logging:
     root: info
     com.perm.admin: info
     com.zaxxer.hikari: warn
-    com.baomidou: warn
-    org.apache.ibatis: warn
-    org.mybatis: warn
     org.springframework.web: info

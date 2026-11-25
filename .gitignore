@@ -2,6 +2,9 @@ target/
 node_modules/
 dist/
 data/
+release/
+release.zip
+config/permissions-remote-test.json
 *.log
 .idea/
 .vscode/

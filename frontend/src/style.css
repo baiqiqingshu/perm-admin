@@ -28,8 +28,6 @@
 
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04),
     0 12px 32px -16px rgba(15, 23, 42, 0.12);
-  --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.05),
-    0 20px 44px -18px rgba(15, 23, 42, 0.18);
   --shadow-pop: 0 4px 12px -2px rgba(15, 23, 42, 0.1),
     0 16px 40px -12px rgba(15, 23, 42, 0.16);
   --shadow-modal: 0 24px 64px -16px rgba(15, 23, 42, 0.28);
@@ -209,11 +207,6 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   padding: 20px 24px;
-  transition: box-shadow 0.22s var(--ease), transform 0.22s var(--ease);
-}
-.panel-card.hoverable:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-card-hover);
 }
 
 .toolbar {
@@ -351,12 +344,10 @@ body {
   overflow: hidden;
 }
 .el-select-dropdown__list {
-  padding: 6px;
+  padding: 4px 0;
 }
 .el-select-dropdown__item {
-  border-radius: var(--radius-sm);
-  margin: 1px 0;
-  padding: 0 10px;
+  padding: 0 20px;
   height: 34px;
   line-height: 34px;
   color: var(--ink-700);
@@ -365,10 +356,10 @@ body {
 .el-select-dropdown__item.is-hovering {
   background: var(--el-fill-color-light);
 }
+/* 选中态只给品牌色文字，EP 自带右侧对勾标识，不再画背景块 */
 .el-select-dropdown__item.is-selected {
   color: var(--brand-600);
   font-weight: 600;
-  background: var(--brand-50);
 }
 .el-select-dropdown__item.is-disabled {
   color: var(--el-text-color-disabled);
@@ -403,6 +394,11 @@ body {
 }
 .el-select__wrapper.is-focused {
   box-shadow: 0 0 0 1px var(--brand-600) inset, 0 0 0 3px rgba(79, 70, 229, 0.14);
+}
+/* select 已用 is-focused 阴影圈表达焦点，去掉全局 :focus-visible 的矩形外描边，
+   否则圆角控件外再套一个直角矩形框 */
+.el-select :focus-visible {
+  outline: none;
 }
 .el-select__wrapper.is-disabled {
   background: var(--el-disabled-bg-color);

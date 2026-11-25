@@ -41,9 +41,10 @@
       <div class="select-grid">
         <div class="select-field">
           <label class="field-label">项目</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="sel.projects"
-            multiple
+            :options="projectOptions"
+            option-value-key="code"
             filterable
             clearable
             collapse-tags
@@ -65,14 +66,15 @@
                 </span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
 
         <div class="select-field">
           <label class="field-label">环境</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="sel.envs"
-            multiple
+            :options="envOptions"
+            option-value-key="code"
             filterable
             clearable
             collapse-tags
@@ -94,14 +96,15 @@
                 </span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
 
         <div class="select-field">
           <label class="field-label">数据库</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="sel.dbs"
-            multiple
+            :options="dbOptions"
+            option-value-key="code"
             filterable
             clearable
             collapse-tags
@@ -123,14 +126,15 @@
                 </span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
 
         <div class="select-field">
           <label class="field-label">权限表</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="sel.tables"
-            multiple
+            :options="tableOptions"
+            option-value-key="code"
             filterable
             clearable
             collapse-tags
@@ -152,7 +156,7 @@
                 </span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
       </div>
     </section>
@@ -170,9 +174,10 @@
       <div class="select-grid two">
         <div class="select-field">
           <label class="field-label">权限（显示名）</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="permLabels"
-            multiple
+            :options="permLabelOptions"
+            option-value-key="label"
             filterable
             clearable
             collapse-tags
@@ -191,14 +196,15 @@
                 <span class="opt-meta">{{ o.count }} 表</span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
 
         <div class="select-field">
           <label class="field-label">数据范围（显示名）</label>
-          <el-select
+          <SelectAllMultiSelect
             v-model="scopeLabels"
-            multiple
+            :options="scopeLabelOptions"
+            option-value-key="label"
             filterable
             clearable
             collapse-tags
@@ -217,7 +223,7 @@
                 <span class="opt-meta">{{ o.count }} 表</span>
               </div>
             </el-option>
-          </el-select>
+          </SelectAllMultiSelect>
         </div>
       </div>
     </section>
@@ -282,6 +288,7 @@ import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import SqlPreviewDialog from '../components/SqlPreviewDialog.vue'
 import ExecuteResultDialog from '../components/ExecuteResultDialog.vue'
+import SelectAllMultiSelect from '../components/SelectAllMultiSelect.vue'
 import { previewSql, executeSql, extractErrorMessage } from '../api'
 import { loadConfig, collectTableEntries } from '../store/config'
 
@@ -610,7 +617,7 @@ function resetForm() {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 900px;
+  width: 100%;
 }
 
 .section {
@@ -653,11 +660,20 @@ function resetForm() {
 
 .select-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px 16px;
 }
 .select-grid.two {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1280px) {
+  .select-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .select-grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .select-field {
   display: flex;

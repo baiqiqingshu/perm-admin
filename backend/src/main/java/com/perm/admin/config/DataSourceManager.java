@@ -19,6 +19,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 按 database.code 懒建并缓存 HikariDataSource；
- * 启动时对 autoInit 的库建表 + 灌演示数据（仅表为空时）；
- * 第一个 autoInit 库作为 Spring 主 DataSource（供 MyBatis-Plus 等自动配置使用）。
+ * 启动时对 autoInit 的库建表 + 灌演示数据（仅表为空时）。
  */
 @Component
 public class DataSourceManager {
@@ -36,8 +37,6 @@ public class DataSourceManager {
 
     private final ConfigService configService;
     private final Map<String, HikariDataSource> cache = new ConcurrentHashMap<>();
-    private volatile DataSource primary;
-    private volatile HikariDataSource fallback;
 
     public DataSourceManager(ConfigService configService) {
         this.configService = configService;
@@ -55,9 +54,6 @@ public class DataSourceManager {
                     try {
                         HikariDataSource ds = create(d);
                         cache.put(d.code, ds);
-                        if (primary == null) {
-                            primary = ds;
-                        }
                         autoInitDatabase(ds, d);
                         log.info("autoInit 数据源就绪: {} ({})", d.code, d.jdbcUrl);
                     } catch (Exception ex) {
@@ -66,28 +62,12 @@ public class DataSourceManager {
                 }
             }
         }
-        if (primary == null) {
-            // 无 autoInit 库时注册一个内存 H2 兜底，保证 MyBatis-Plus autoconfig 不报错
-            log.warn("配置中没有 autoInit 数据源，使用内存 H2 作为主数据源兜底");
-            HikariConfig hc = new HikariConfig();
-            hc.setJdbcUrl("jdbc:h2:mem:perm-admin-fallback;DB_CLOSE_DELAY=-1");
-            hc.setUsername("sa");
-            hc.setPoolName("perm-fallback");
-            hc.setMaximumPoolSize(2);
-            fallback = new HikariDataSource(hc);
-            primary = fallback;
-        }
     }
 
     /** 配置重载后重建：关闭缓存的连接池，重新跑一遍 init。 */
     public synchronized void rebuild() {
         cache.values().forEach(HikariDataSource::close);
         cache.clear();
-        primary = null;
-        if (fallback != null) {
-            fallback.close();
-            fallback = null;
-        }
         init();
     }
 
@@ -102,11 +82,8 @@ public class DataSourceManager {
         return cache.computeIfAbsent(dbCode, k -> create(d));
     }
 
-    public DataSource primary() {
-        return primary;
-    }
-
     private HikariDataSource create(DatabaseNode d) {
+        ensureSqliteParentDir(d);
         HikariConfig hc = new HikariConfig();
         hc.setJdbcUrl(d.jdbcUrl);
         if (d.username != null) {
@@ -120,16 +97,41 @@ public class DataSourceManager {
         }
         hc.setPoolName("perm-" + d.code);
         hc.setMaximumPoolSize(4);
+        // 快速失败：连接拿不到 5s 就抛错，避免一个坏库拖死整个"查询所有"
+        hc.setConnectionTimeout(5000);
+        hc.setValidationTimeout(3000);
+        // 空闲 2 分钟就回收，防止死连接堆积（MySQL wait_timeout 通常 28800s，但内网防火墙可能几分钟就断）
+        hc.setIdleTimeout(120000);
+        hc.setMaxLifetime(600000);
         return new HikariDataSource(hc);
+    }
+
+    /** sqlite 驱动不会自建库文件父目录，jdbc:sqlite:<path> 的父目录需提前建好。 */
+    private void ensureSqliteParentDir(DatabaseNode d) {
+        if (d.jdbcUrl == null || !d.jdbcUrl.contains(":sqlite:")) {
+            return;
+        }
+        try {
+            String file = d.jdbcUrl.substring(d.jdbcUrl.indexOf("sqlite:") + "sqlite:".length());
+            int q = file.indexOf('?');
+            if (q >= 0) {
+                file = file.substring(0, q);
+            }
+            Path parent = Path.of(file).toAbsolutePath().normalize().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+        } catch (Exception e) {
+            log.warn("sqlite 库文件父目录创建失败: {} - {}", d.jdbcUrl, e.getMessage());
+        }
     }
 
     // ---------- autoInit：建表 + 演示数据 ----------
 
     private void autoInitDatabase(DataSource ds, DatabaseNode db) throws Exception {
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
-            boolean sqlite = db.jdbcUrl != null && db.jdbcUrl.contains(":sqlite:");
             for (PermTable t : db.permissionTables) {
-                st.execute(buildDdl(t, sqlite));
+                st.execute(buildDdl(t, db.jdbcUrl));
                 long count;
                 try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + t.tableName)) {
                     rs.next();
@@ -146,8 +148,9 @@ public class DataSourceManager {
     /**
      * CREATE TABLE IF NOT EXISTS：id 自增主键 + 映射字段 VARCHAR + otherFields 列
      * （占位符含 ${now} 的列用 TIMESTAMP，其余 VARCHAR(255)）。
+     * 方言按 jdbcUrl 判断：sqlite / postgres / mssql / oracle / mysql|h2 兜底。
      */
-    private String buildDdl(PermTable t, boolean sqlite) {
+    private String buildDdl(PermTable t, String jdbcUrl) {
         Map<String, String> cols = new LinkedHashMap<>();
         cols.put(t.fields.personId, "VARCHAR(64)");
         if (t.fields.personName != null && !t.fields.personName.isBlank()) {
@@ -159,10 +162,22 @@ public class DataSourceManager {
             t.otherFields.forEach((col, tpl) ->
                     cols.putIfAbsent(col, tpl != null && tpl.contains("${now}") ? "TIMESTAMP" : "VARCHAR(255)"));
         }
+        String idCol;
+        if (jdbcUrl != null && jdbcUrl.contains(":sqlite:")) {
+            idCol = "id INTEGER PRIMARY KEY AUTOINCREMENT";
+        } else if (jdbcUrl != null && jdbcUrl.contains(":postgresql:")) {
+            idCol = "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY";
+        } else if (jdbcUrl != null && (jdbcUrl.contains(":sqlserver:") || jdbcUrl.contains(":jtds:"))) {
+            idCol = "id BIGINT IDENTITY(1,1) PRIMARY KEY";
+        } else if (jdbcUrl != null && jdbcUrl.contains(":oracle:")) {
+            idCol = "id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY";
+        } else {
+            // MySQL / H2 / MariaDB 等 AUTO_INCREMENT 方言
+            idCol = "id BIGINT AUTO_INCREMENT PRIMARY KEY";
+        }
         StringBuilder ddl = new StringBuilder();
         ddl.append("CREATE TABLE IF NOT EXISTS ").append(t.tableName)
-           .append(sqlite ? " (id INTEGER PRIMARY KEY AUTOINCREMENT"
-                          : " (id BIGINT AUTO_INCREMENT PRIMARY KEY");
+           .append(" (").append(idCol);
         cols.forEach((col, type) -> ddl.append(", ").append(col).append(' ').append(type));
         ddl.append(')');
         return ddl.toString();

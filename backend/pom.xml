@@ -13,7 +13,7 @@
 
     <groupId>com.perm.admin</groupId>
     <artifactId>perm-admin</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.2</version>
     <name>perm-admin</name>
     <description>Local permission admin tool backend</description>
 
@@ -32,12 +32,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>3.5.18</version>
-        </dependency>
-
         <!-- database drivers -->
         <dependency>
             <groupId>com.h2database</groupId>
@@ -68,6 +62,48 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <!-- 前端构建产物打进 jar 的 /static，由 Spring Boot 同源 serve；
+                         目录不存在时跳过（仅后端构建不报错），先 npm run build 再 package 即包含页面 -->
+                    <execution>
+                        <id>copy-frontend-dist</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../frontend/dist</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <!-- 默认权限配置打进 jar 根路径，exe 无外置 json 时兜底（见 ConfigService） -->
+                    <execution>
+                        <id>copy-default-config</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../config</directory>
+                                    <includes>
+                                        <include>permissions.json</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
