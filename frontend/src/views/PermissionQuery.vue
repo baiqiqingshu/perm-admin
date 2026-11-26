@@ -142,144 +142,177 @@
         </ul>
       </el-alert>
 
-      <el-table
-        ref="tableRef"
-        v-loading="loading"
-        :data="visibleRows"
-        border
-        stripe
-        :empty-text="rows.length ? '当前表头筛选条件下暂无数据' : '暂无数据，调整筛选条件后重新查询'"
-        @selection-change="(v) => (selection = v)"
-      >
-        <el-table-column type="selection" width="42" :resizable="false" />
-        <el-table-column width="46" align="center" :resizable="false">
-          <template #header>#</template>
-          <template #default="{ $index }">
-            <span class="muted row-index">{{ $index + 1 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-for="col in dataColumns"
-          :key="col.key"
-          :width="col.width"
-          :resizable="true"
-          show-overflow-tooltip
-        >
-          <template #header>
-            <div class="column-head">
-              <span class="column-title" :title="col.label">{{ col.label }}</span>
-              <span class="column-actions">
-                <button
-                  type="button"
-                  class="col-action"
-                  :class="{ active: sortIndexFor(col.key) !== -1 }"
-                  :title="sortButtonTitle(col)"
-                  :aria-label="sortButtonTitle(col)"
-                  @click="toggleSort(col.key)"
-                >
-                  <el-icon>
-                    <SortUp v-if="sortDirectionFor(col.key) === 'asc'" />
-                    <SortDown v-else-if="sortDirectionFor(col.key) === 'desc'" />
-                    <Sort v-else />
-                  </el-icon>
-                  <span v-if="sortIndexFor(col.key) !== -1" class="action-badge">
-                    {{ sortIndexFor(col.key) + 1 }}
-                  </span>
-                </button>
-                <el-popover
-                  placement="bottom-start"
-                  :width="260"
-                  trigger="click"
-                  @show="onFilterPopoverShow(col.key)"
-                >
-                  <template #reference>
+      <div v-loading="loading" class="result-grid">
+        <el-auto-resizer @resize="onGridResize">
+          <template #default="{ height, width }">
+            <el-table-v2
+              :columns="tableColumns"
+              :data="visibleRows"
+              :width="width"
+              :height="height"
+              :header-height="40"
+              :row-height="40"
+              :row-class="rowClass"
+              row-key="_rowKey"
+              fixed
+            >
+              <template #header-cell="{ column }">
+                <el-checkbox
+                  v-if="column.kind === 'selection'"
+                  :model-value="allVisibleSelected"
+                  :indeterminate="someVisibleSelected"
+                  :disabled="!visibleRows.length"
+                  aria-label="全选当前结果"
+                  @change="toggleAllVisible"
+                />
+                <span v-else-if="column.kind !== 'data'" class="grid-head-title">{{ column.title }}</span>
+                <div v-else class="column-head">
+                  <span class="column-title" :title="column.title">{{ column.title }}</span>
+                  <span class="column-actions">
                     <button
                       type="button"
                       class="col-action"
-                      :class="{ active: isFilterActive(col.key) }"
-                      :title="`筛选${col.label}`"
-                      :aria-label="`筛选${col.label}`"
+                      :class="{ active: sortIndexFor(column.key) !== -1 }"
+                      :title="sortButtonTitle(column.col)"
+                      :aria-label="sortButtonTitle(column.col)"
+                      @click="toggleSort(column.key)"
                     >
-                      <el-icon><Filter /></el-icon>
-                      <span v-if="activeFilterCount(col.key)" class="action-badge">
-                        {{ activeFilterCount(col.key) }}
+                      <el-icon>
+                        <SortUp v-if="sortDirectionFor(column.key) === 'asc'" />
+                        <SortDown v-else-if="sortDirectionFor(column.key) === 'desc'" />
+                        <Sort v-else />
+                      </el-icon>
+                      <span v-if="sortIndexFor(column.key) !== -1" class="action-badge">
+                        {{ sortIndexFor(column.key) + 1 }}
                       </span>
                     </button>
-                  </template>
-                  <div class="filter-popover">
-                    <el-input
-                      v-model="filterSearch[col.key]"
-                      size="small"
-                      clearable
-                      :placeholder="`搜索${col.label}`"
+                    <el-popover
+                      placement="bottom-start"
+                      :width="260"
+                      trigger="click"
+                      @show="onFilterPopoverShow(column.key)"
                     >
-                      <template #prefix>
-                        <el-icon><Search /></el-icon>
-                      </template>
-                    </el-input>
-                    <div class="filter-toolbar">
-                      <el-button
-                        link
-                        type="primary"
-                        size="small"
-                        :disabled="!visibleFilterOptions(col.key).length || allVisibleOptionsSelected(col.key)"
-                        @click="selectVisibleFilterOptions(col.key)"
-                      >
-                        全选当前搜索
-                      </el-button>
-                      <el-button
-                        link
-                        size="small"
-                        :disabled="!activeFilterCount(col.key)"
-                        @click="clearColumnFilter(col.key)"
-                      >
-                        清空
-                      </el-button>
-                    </div>
-                    <div class="filter-option-list">
-                      <el-checkbox-group
-                        v-if="visibleFilterOptions(col.key).length"
-                        v-model="headerFilters[col.key]"
-                        class="filter-checkbox-group"
-                      >
-                        <el-checkbox
-                          v-for="(opt, optIndex) in visibleFilterOptions(col.key)"
-                          :key="`${col.key}-${optIndex}-${opt.value}`"
-                          :value="opt.value"
-                          class="filter-option"
+                      <template #reference>
+                        <button
+                          type="button"
+                          class="col-action"
+                          :class="{ active: isFilterActive(column.key) }"
+                          :title="`筛选${column.title}`"
+                          :aria-label="`筛选${column.title}`"
                         >
-                          <span class="filter-option-text" :title="opt.label">{{ opt.label }}</span>
-                        </el-checkbox>
-                      </el-checkbox-group>
-                      <div v-else class="filter-empty">{{ filterEmptyText(col.key) }}</div>
-                    </div>
-                    <div class="filter-meta">
-                      已选 {{ activeFilterCount(col.key) }} / 共 {{ filterOptionTotal(col.key) }} 项
-                    </div>
-                  </div>
-                </el-popover>
-              </span>
-            </div>
+                          <el-icon><Filter /></el-icon>
+                          <span v-if="activeFilterCount(column.key)" class="action-badge">
+                            {{ activeFilterCount(column.key) }}
+                          </span>
+                        </button>
+                      </template>
+                      <div class="filter-popover">
+                        <el-input
+                          v-model="filterSearch[column.key]"
+                          size="small"
+                          clearable
+                          :placeholder="`搜索${column.title}`"
+                        >
+                          <template #prefix>
+                            <el-icon><Search /></el-icon>
+                          </template>
+                        </el-input>
+                        <div class="filter-toolbar">
+                          <el-button
+                            link
+                            type="primary"
+                            size="small"
+                            :disabled="!visibleFilterOptions(column.key).length || allVisibleOptionsSelected(column.key)"
+                            @click="selectVisibleFilterOptions(column.key)"
+                          >
+                            全选当前搜索
+                          </el-button>
+                          <el-button
+                            link
+                            size="small"
+                            :disabled="!activeFilterCount(column.key)"
+                            @click="clearColumnFilter(column.key)"
+                          >
+                            清空
+                          </el-button>
+                        </div>
+                        <div class="filter-option-list">
+                          <el-checkbox-group
+                            v-if="visibleFilterOptions(column.key).length"
+                            v-model="headerFilters[column.key]"
+                            class="filter-checkbox-group"
+                          >
+                            <el-checkbox
+                              v-for="(opt, optIndex) in visibleFilterOptions(column.key)"
+                              :key="`${column.key}-${optIndex}-${opt.value}`"
+                              :value="opt.value"
+                              class="filter-option"
+                            >
+                              <span class="filter-option-text" :title="opt.label">{{ opt.label }}</span>
+                            </el-checkbox>
+                          </el-checkbox-group>
+                          <div v-else class="filter-empty">{{ filterEmptyText(column.key) }}</div>
+                        </div>
+                        <div class="filter-meta">
+                          已选 {{ activeFilterCount(column.key) }} / 共 {{ filterOptionTotal(column.key) }} 项
+                        </div>
+                      </div>
+                    </el-popover>
+                  </span>
+                  <span
+                    class="col-resizer"
+                    :class="{ 'is-active': resizingKey === column.key }"
+                    role="separator"
+                    aria-orientation="vertical"
+                    :title="`拖动调整${column.title}列宽，双击还原`"
+                    @pointerdown="startResize($event, column.key)"
+                    @click.stop
+                    @dblclick.stop="resetColumnWidth(column.key)"
+                  ></span>
+                </div>
+              </template>
+              <template #cell="{ column, rowData, rowIndex }">
+                <el-checkbox
+                  v-if="column.kind === 'selection'"
+                  :model-value="selectedKeys.has(rowData._rowKey)"
+                  :aria-label="`选择第 ${rowIndex + 1} 行`"
+                  @change="(checked) => toggleRow(rowData._rowKey, checked)"
+                />
+                <span v-else-if="column.kind === 'index'" class="grid-index">{{ rowIndex + 1 }}</span>
+                <el-button
+                  v-else-if="column.kind === 'operation'"
+                  type="danger"
+                  link
+                  size="small"
+                  @click="onRowDelete(rowData)"
+                >
+                  删除
+                </el-button>
+                <span v-else-if="column.col.type === 'scope'" class="grid-text" :title="displayScopeText(rowData)">
+                  {{ rowData.scopeLabel || '—' }}<span v-if="!isBlank(rowData.scopeValue)" class="grid-sub">（{{ rowData.scopeValue }}）</span>
+                </span>
+                <span v-else-if="column.col.type === 'permission'" class="permission-cell" :title="displayPermissionText(rowData)">
+                  <el-tag size="small" effect="plain" class="perm-tag">
+                    {{ rowData.permissionLabel || rowData.permissionValue || '—' }}
+                  </el-tag>
+                  <span v-if="!isBlank(rowData.permissionValue)" class="grid-sub grid-text">（{{ rowData.permissionValue }}）</span>
+                </span>
+                <span v-else class="grid-text" :title="displayCell(rowData, column.col)">{{ displayCell(rowData, column.col) }}</span>
+              </template>
+              <template #empty>
+                <div class="grid-empty">
+                  <span class="grid-empty-icon"><el-icon :size="20"><Document /></el-icon></span>
+                  <p class="grid-empty-title">{{ rows.length ? '没有符合表头筛选的记录' : '暂无查询结果' }}</p>
+                  <p class="grid-empty-hint">
+                    {{ rows.length ? '放宽或清空表头筛选后即可看到结果。' : '设置上方筛选条件后点击「查询」。' }}
+                  </p>
+                  <el-button v-if="rows.length" size="small" @click="clearAllHeaderFilters">清空表头筛选</el-button>
+                </div>
+              </template>
+            </el-table-v2>
           </template>
-          <template #default="{ row }">
-            <template v-if="col.type === 'scope'">
-              {{ row.scopeLabel }}<span class="muted">（{{ row.scopeValue }}）</span>
-            </template>
-            <span v-else-if="col.type === 'permission'" class="permission-cell">
-              <el-tag size="small" effect="plain" class="perm-tag">
-                {{ row.permissionLabel || row.permissionValue || '—' }}
-              </el-tag>
-              <span v-if="row.permissionValue" class="muted">（{{ row.permissionValue }}）</span>
-            </span>
-            <span v-else>{{ displayCell(row, col) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" fixed="right" :resizable="false">
-          <template #default="{ row }">
-            <el-button type="danger" link size="small" @click="onRowDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        </el-auto-resizer>
+      </div>
     </section>
 
     <SqlPreviewDialog
@@ -305,7 +338,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, onMounted } from 'vue'
+import { reactive, ref, shallowRef, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import TableCascade from '../components/TableCascade.vue'
 import SqlPreviewDialog from '../components/SqlPreviewDialog.vue'
@@ -320,7 +353,7 @@ function createCascadeState() {
 const cascade = ref(createCascadeState())
 const filters = reactive({ permissionLabels: [], scopeLabels: [], keyword: '' })
 
-const rows = ref([])
+const rows = shallowRef([])
 const sortRules = ref([])
 
 function displayScopeText(row) {
@@ -332,16 +365,55 @@ function displayPermissionText(row) {
 }
 
 const dataColumns = [
-  { key: 'personId', label: '工号', width: 120, type: 'text', getValue: (row) => row.personId ?? '' },
-  { key: 'personName', label: '用户名称', width: 130, type: 'text', getValue: (row) => row.personName ?? '' },
-  { key: 'projectName', label: '项目', width: 130, type: 'text', getValue: (row) => row.projectName ?? '' },
-  { key: 'environmentName', label: '环境', width: 110, type: 'text', getValue: (row) => row.environmentName ?? '' },
-  { key: 'databaseName', label: '数据库', width: 140, type: 'text', getValue: (row) => row.databaseName ?? '' },
-  { key: 'tableName', label: '权限表', width: 180, type: 'text', getValue: (row) => row.tableName ?? '' },
-  { key: 'scope', label: '数据范围', width: 180, type: 'scope', getValue: displayScopeText },
-  { key: 'permission', label: '权限', width: 150, type: 'permission', getValue: displayPermissionText }
+  { key: 'personId', label: '工号', width: 122, minWidth: 96, maxWidth: 200, flexGrow: 0.5, type: 'text', getValue: (row) => row.personId ?? '' },
+  { key: 'personName', label: '用户名称', width: 132, minWidth: 100, maxWidth: 240, flexGrow: 0.7, type: 'text', getValue: (row) => row.personName ?? '' },
+  { key: 'projectName', label: '项目', width: 138, minWidth: 100, maxWidth: 280, flexGrow: 0.9, type: 'text', getValue: (row) => row.projectName ?? '' },
+  { key: 'environmentName', label: '环境', width: 104, minWidth: 84, maxWidth: 180, flexGrow: 0.4, type: 'text', getValue: (row) => row.environmentName ?? '' },
+  { key: 'databaseName', label: '数据库', width: 150, minWidth: 110, maxWidth: 300, flexGrow: 1, type: 'text', getValue: (row) => row.databaseName ?? '' },
+  { key: 'tableName', label: '权限表', width: 196, minWidth: 130, maxWidth: 400, flexGrow: 1.3, type: 'text', getValue: (row) => row.tableName ?? '' },
+  { key: 'scope', label: '数据范围', width: 220, minWidth: 140, maxWidth: 460, flexGrow: 1.5, type: 'scope', getValue: displayScopeText },
+  { key: 'permission', label: '权限', width: 196, minWidth: 130, maxWidth: 380, flexGrow: 1.1, type: 'permission', getValue: displayPermissionText }
 ]
 const columnMap = Object.fromEntries(dataColumns.map((col) => [col.key, col]))
+const SELECTION_WIDTH = 46
+const INDEX_WIDTH = 58
+const OPERATION_WIDTH = 80
+const SCROLLBAR_SIZE = 6
+const RESIZE_MAX_WIDTH = 720
+const gridWidth = ref(0)
+const columnWidths = reactive(Object.fromEntries(dataColumns.map((col) => [col.key, col.width])))
+const resizedKeys = reactive(new Set())
+const resizingKey = ref('')
+let resizeState = null
+
+const layoutWidths = computed(() => {
+  const widths = Object.fromEntries(dataColumns.map((col) => [col.key, columnWidths[col.key]]))
+  const fixedWidth = SELECTION_WIDTH + INDEX_WIDTH + OPERATION_WIDTH + SCROLLBAR_SIZE
+  let extra = gridWidth.value - fixedWidth - Object.values(widths).reduce((sum, w) => sum + w, 0)
+  let pool = dataColumns.filter((col) => !resizedKeys.has(col.key) && widths[col.key] < col.maxWidth)
+  while (extra > 0.5 && pool.length) {
+    const totalGrow = pool.reduce((sum, col) => sum + col.flexGrow, 0)
+    let used = 0
+    for (const col of pool) {
+      const add = Math.min((extra * col.flexGrow) / totalGrow, col.maxWidth - widths[col.key])
+      widths[col.key] += add
+      used += add
+    }
+    extra -= used
+    pool = pool.filter((col) => widths[col.key] < col.maxWidth)
+  }
+  return widths
+})
+
+const tableColumns = computed(() => [
+  { key: '__selection', kind: 'selection', width: SELECTION_WIDTH, fixed: 'left', align: 'center', class: 'grid-col-fixed', headerClass: 'grid-col-fixed' },
+  { key: '__index', kind: 'index', title: '#', width: INDEX_WIDTH, fixed: 'left', align: 'center', class: 'grid-col-fixed', headerClass: 'grid-col-fixed' },
+  ...dataColumns.map((col, i) => {
+    const edge = i === dataColumns.length - 1 ? 'grid-col-last' : ''
+    return { key: col.key, dataKey: col.key, kind: 'data', col, title: col.label, width: layoutWidths.value[col.key], minWidth: col.minWidth, maxWidth: col.maxWidth, flexGrow: 0, flexShrink: 0, class: edge, headerClass: edge }
+  }),
+  { key: '__operation', kind: 'operation', title: '操作', width: OPERATION_WIDTH, fixed: 'right', align: 'center', class: 'grid-col-operation', headerClass: 'grid-col-operation' }
+])
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
 
 const headerFilters = reactive(Object.fromEntries(dataColumns.map((col) => [col.key, []])))
@@ -399,8 +471,10 @@ const resultCountText = computed(() => {
 
 const errors = ref([])
 const loading = ref(false)
-const selection = ref([])
-const tableRef = ref()
+const selectedKeys = shallowRef(new Set())
+const selection = computed(() => visibleRows.value.filter((row) => selectedKeys.value.has(row._rowKey)))
+const allVisibleSelected = computed(() => visibleRows.value.length > 0 && selection.value.length === visibleRows.value.length)
+const someVisibleSelected = computed(() => selection.value.length > 0 && !allVisibleSelected.value)
 
 const dialogVisible = ref(false)
 const previewGroups = ref([])
@@ -417,6 +491,90 @@ const permissionLabelOptions = computed(() => collectPermissionLabels())
 const scopeLabelOptions = computed(() => collectScopeLabels())
 
 onMounted(() => loadConfig())
+onBeforeUnmount(stopResize)
+
+function isBlank(value) {
+  return value === null || value === undefined || value === ''
+}
+
+function withRowKeys(list) {
+  const seen = new Map()
+  return list.map((row) => {
+    const base = [row.project, row.environment, row.database, row.tableCode, row.personId, row.scopeValue, row.permissionValue]
+      .map((v) => encodeURIComponent(v ?? ''))
+      .join('|')
+    const n = seen.get(base) || 0
+    seen.set(base, n + 1)
+    return { ...row, _rowKey: n ? `${base}#${n}` : base }
+  })
+}
+
+function rowClass({ rowData, rowIndex }) {
+  return [rowIndex % 2 ? 'is-striped' : '', selectedKeys.value.has(rowData._rowKey) ? 'is-selected' : ''].join(' ')
+}
+
+function toggleRow(key, checked) {
+  const next = new Set(selectedKeys.value)
+  if (checked) next.add(key)
+  else next.delete(key)
+  selectedKeys.value = next
+}
+
+function toggleAllVisible(checked) {
+  const next = new Set(selectedKeys.value)
+  for (const row of visibleRows.value) {
+    if (checked) next.add(row._rowKey)
+    else next.delete(row._rowKey)
+  }
+  selectedKeys.value = next
+}
+
+function clearSelection() {
+  selectedKeys.value = new Set()
+}
+
+function onGridResize({ width }) {
+  gridWidth.value = width
+}
+
+function startResize(event, key) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  stopResize()
+  resizeState = { key, startX: event.clientX, startWidth: layoutWidths.value[key] }
+  columnWidths[key] = resizeState.startWidth
+  resizedKeys.add(key)
+  resizingKey.value = key
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('pointermove', onResizeMove)
+  document.addEventListener('pointerup', stopResize)
+  document.addEventListener('pointercancel', stopResize)
+}
+
+function onResizeMove(event) {
+  if (!resizeState) return
+  const { key, startX, startWidth } = resizeState
+  const next = startWidth + event.clientX - startX
+  columnWidths[key] = Math.round(Math.min(Math.max(next, columnMap[key].minWidth), RESIZE_MAX_WIDTH))
+}
+
+function stopResize() {
+  document.removeEventListener('pointermove', onResizeMove)
+  document.removeEventListener('pointerup', stopResize)
+  document.removeEventListener('pointercancel', stopResize)
+  if (!resizeState) return
+  resizeState = null
+  resizingKey.value = ''
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+function resetColumnWidth(key) {
+  columnWidths[key] = columnMap[key].width
+  resizedKeys.delete(key)
+}
 
 function normalizeFilterValue(value) {
   return value === null || value === undefined ? '' : String(value)
@@ -562,8 +720,9 @@ async function doQuery() {
     appendArrayParam(params, 'scopeLabels', filters.scopeLabels)
     if (filters.keyword) params.keyword = filters.keyword
     const data = await queryPermissions(params)
-    rows.value = data?.rows || []
+    rows.value = withRowKeys(data?.rows || [])
     errors.value = data?.errors || []
+    clearSelection()
     pruneHeaderFilters()
     pruneSortRules()
   } finally {
@@ -647,8 +806,7 @@ async function onConfirmExecute(groups) {
 
 /** 结果弹窗点「确定」后：刷新列表并清空已选 */
 async function onResultDone() {
-  selection.value = []
-  tableRef.value?.clearSelection()
+  clearSelection()
   await doQuery()
 }
 
@@ -810,11 +968,162 @@ function formatError(e) {
 .clear-sort {
   margin-left: auto;
 }
-.row-index {
+
+.result-grid {
+  height: clamp(420px, calc(100vh - 375px), 760px);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.result-grid :deep(.el-table-v2) {
+  --grid-line: #edf0f4;
+  --el-table-row-hover-bg-color: rgba(79, 70, 229, 0.045);
+  font-size: 13px;
+  color: var(--ink-700);
+}
+.result-grid :deep(.el-table-v2__header-row) {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.result-grid :deep(.el-table-v2__header-cell) {
+  position: relative;
+  padding: 0 10px;
+  background: #f8fafc;
+  color: var(--ink-700);
   font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-right: 1px solid var(--grid-line);
+}
+.result-grid :deep(.el-table-v2__row) {
+  border-bottom: 1px solid var(--grid-line);
+  transition: background-color var(--dur) var(--ease);
+}
+.result-grid :deep(.el-table-v2__row.is-striped) {
+  background: #fafbfc;
+}
+.result-grid :deep(.el-table-v2__row.is-hovered),
+.result-grid :deep(.el-table-v2__row:hover) {
+  background: rgba(79, 70, 229, 0.045);
+}
+.result-grid :deep(.el-table-v2__row.is-selected) {
+  background: rgba(79, 70, 229, 0.075);
+}
+.result-grid :deep(.el-table-v2__row.is-selected.is-hovered),
+.result-grid :deep(.el-table-v2__row.is-selected:hover) {
+  background: rgba(79, 70, 229, 0.11);
+}
+.result-grid :deep(.el-table-v2__row-cell) {
+  padding: 0 10px;
+  border-right: 1px solid var(--grid-line);
+}
+.result-grid :deep(.grid-col-fixed) {
+  padding: 0 6px;
+}
+.result-grid :deep(.el-table-v2__row-cell.grid-col-last),
+.result-grid :deep(.el-table-v2__header-cell.grid-col-last) {
+  border-right: 0;
+}
+.result-grid :deep(.el-table-v2__row-cell.grid-col-operation),
+.result-grid :deep(.el-table-v2__header-cell.grid-col-operation) {
+  border-right: 0;
+  border-left: 1px solid var(--grid-line);
+}
+.result-grid :deep(.el-table-v2__left) {
+  box-shadow: 4px 0 8px -6px rgba(15, 23, 42, 0.14);
+}
+.result-grid :deep(.el-table-v2__right) {
+  box-shadow: -4px 0 8px -6px rgba(15, 23, 42, 0.14);
+}
+.result-grid :deep(.el-table-v2__empty) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.result-grid :deep(.el-checkbox) {
+  height: auto;
+}
+.grid-head-title {
+  color: var(--ink-500);
+}
+.grid-index {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.grid-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grid-sub {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.grid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+.grid-empty-icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-600);
+  background: var(--brand-50);
+}
+.grid-empty-title {
+  margin: 0;
+  color: var(--ink-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+.grid-empty-hint {
+  margin: 0 0 6px;
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  z-index: 1;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  right: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color var(--dur) var(--ease), top var(--dur) var(--ease), bottom var(--dur) var(--ease);
+}
+.col-resizer:hover::after,
+.col-resizer.is-active::after {
+  top: 0;
+  bottom: 0;
+  background: var(--brand-500);
+}
+.col-resizer.is-active::after {
+  background: var(--brand-600);
 }
 
 .column-head {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -851,6 +1160,11 @@ function formatError(e) {
 .col-action:hover {
   color: var(--brand-600);
   background: rgba(79, 70, 229, 0.1);
+}
+.col-action:focus-visible,
+.chip-action:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 1px;
 }
 .col-action.active {
   color: #fff;
@@ -903,6 +1217,7 @@ function formatError(e) {
   flex-direction: column;
 }
 .filter-option {
+  box-sizing: border-box;
   width: 100%;
   height: auto;
   min-height: 30px;
@@ -949,7 +1264,11 @@ function formatError(e) {
   font-weight: 400;
 }
 .perm-tag {
-  margin-right: 6px;
+  flex-shrink: 0;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0 6px;
+  font-size: 12px;
 }
 .permission-cell {
   display: inline-flex;

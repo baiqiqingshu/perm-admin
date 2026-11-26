@@ -34,8 +34,6 @@ public class PermissionService {
 
     private static final Logger log = LoggerFactory.getLogger(PermissionService.class);
 
-    /** 每表最大返回行数 */
-    private static final int MAX_ROWS_PER_TABLE = 500;
     /** label 过滤翻译失败哨兵：该表无此 label 且 raw value 也不匹配 -> 跳过该表 */
     private static final String SKIP_TABLE = "SKIP_TABLE";
 
@@ -158,7 +156,6 @@ public class PermissionService {
                     .append(")");
             params.addAll(scopeFilters);
         }
-        sql.append(" LIMIT ").append(MAX_ROWS_PER_TABLE);
 
         DataSource ds = dataSourceManager.get(rt.database().code);
         JdbcTemplate jt = new JdbcTemplate(ds);

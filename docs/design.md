@@ -89,7 +89,7 @@ perm-admin/
 {"projects":["demo"],"environments":["dev"],"databases":["demo-db"],"tableCodes":["user_perm"],
  "permissionLabels":["查询","编辑"],"scopeLabels":["全部数据"],"keyword":"zhang"}
 ```
-所有字段可选；`projects/environments/databases/tableCodes/permissionLabels/scopeLabels` 均为数组，空数组或缺省表示不过滤。仍兼容旧单值字段：`project/environment/database/tableCode/permissionLabel/scopeLabel`；同一级旧字段存在时优先。权限/范围多选为 OR 语义，后端逐表把 label 翻译为实际 value 后用 `IN` 查询，某表不支持的 label 忽略，全部不支持则跳过该表。返回打平的行列表（跨表/跨库合并，每表最多 500 行）：
+所有字段可选；`projects/environments/databases/tableCodes/permissionLabels/scopeLabels` 均为数组，空数组或缺省表示不过滤。仍兼容旧单值字段：`project/environment/database/tableCode/permissionLabel/scopeLabel`；同一级旧字段存在时优先。权限/范围多选为 OR 语义，后端逐表把 label 翻译为实际 value 后用 `IN` 查询，某表不支持的 label 忽略，全部不支持则跳过该表。返回打平的行列表（跨表/跨库合并，不限行数；大结果集由前端虚拟滚动表格渲染）：
 ```json
 {"rows":[{
   "project":"demo","projectName":"演示项目","environment":"dev","environmentName":"开发环境",
@@ -142,7 +142,8 @@ perm-admin/
 
 1. **权限查询**
    - 筛选栏：项目/环境/数据库/权限表（四级均多选、可搜索，上级为空表示全部且下级选项随上级收敛）、权限显示名/数据范围显示名（多选）、关键字。
-   - 表格列：勾选框、序号、工号、用户名称、项目、环境、数据库、权限表、数据范围(显示名+值)、权限(显示名+值)、操作(删除)；列宽可拖动。
+   - 表格列：勾选框、序号、工号、用户名称、项目、环境、数据库、权限表、数据范围(显示名+值)、权限(显示名+值)、操作(删除)。
+   - 结果表为 `el-table-v2` 虚拟滚动（只渲染可视区行，大结果集不卡顿），勾选/序号列固定左侧、操作列固定右侧；列宽按内容预设并自动填满宽屏，表头右缘可拖动调整（双击恢复）。
    - 表头提供排序/筛选按钮：排序加入上方排序键，可切换方向、前移/后移、删除；筛选基于当前查询结果去重生成，支持搜索、勾选/取消、多选、全选当前搜索、清空。
    - 批量勾选/取消 → 批量删除；行内删除 → 同样走预览。
    - 删除 → SQL 预览弹窗（按数据源+表分栏 el-tabs/collapse 展示 SQL 列表）→ 确定执行 → 结果提示 → 刷新。
@@ -168,7 +169,7 @@ perm-admin/
 
 ```bash
 # 后端（18917）：工作目录必须是 backend/（数据文件 ./data 与默认配置路径都相对它）
-cd backend && java -jar target/perm-admin-1.0.2.jar
+cd backend && java -jar target/perm-admin-1.0.3.jar
 # 重新构建（frontend/dist 会被打进 jar 的 /static，18917 同源 serve 页面）：
 JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" \
   "D:/WorkProject/.tools/apache-maven-3.9.16/bin/mvn" -f backend/pom.xml -DskipTests package
@@ -204,12 +205,12 @@ demo 配置自带两个 H2 演示库、erp 项目自带三个 SQLite 演示库�
 - 新增为 人员×权限×范围 笛卡尔积；不带 id。
 - 新增支持 targets 四级多选目标（空=全部）+ 按 label 翻译 + 已有记录去重跳过（skipped/unsupported/errors 明细），详见 iter2-batch-add-redesign.md。
 - 批量执行结果统一确认弹窗（成功/失败/跳过/不支持分区），详见 iter3-execute-result.md。
-- 查询筛选四级与权限/范围均支持多选数组契约；查询结果表格支持列宽拖动、表头多键排序与结果集筛选；新增权限页多选支持一键全选，详见 iter4-query-table-enhancements.md。
+- 查询筛选四级与权限/范围均支持多选数组契约；查询结果表格支持列宽拖动、表头多键排序与结果集筛选（iter5 起为虚拟滚动表格、查询不再限制每表 500 行，详见 iter5-unlimited-virtual-table.md）；新增权限页多选支持一键全选，详见 iter4-query-table-enhancements.md。
 - 配置热重载：POST /api/config/reload；`.agents/skills/perm-config` skill + `scripts/add-perm-table.mjs` 辅助 agent 接入新表配置。
 
 ## 已知限制（原型）
 
-- `LIMIT 500` 分页写法兼容 H2/MySQL/PG/SQLite；MSSQL/Oracle 需方言化。
+- 查询不分页、不限行数（已移除 `LIMIT`，SQL 对各方言通用）；超大结果集的网络传输与浏览器内存占用随行数增长，渲染由虚拟滚动保证流畅。
 - autoInit 建表语法适配 H2/MySQL/SQLite（`AUTOINCREMENT`），仅用于内置演示。
 - `${now}` 以时间戳字符串传参，严格类型列可能需 CAST。
 - `database.code` 必须全局唯一（execute 按 dbCode 定位数据源）。
