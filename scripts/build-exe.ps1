@@ -6,13 +6,15 @@
 .DESCRIPTION
   流水线：npm run build（前端）→ mvn package（dist 打进 jar /static；permissions.json 打进 classpath 兜底）
   → jpackage app-image（内置 jlink 裁剪 JRE，目标机零依赖）
-  → Enigma Virtual Box / 7z SFX 压成便携单 exe。
+  → Enigma Virtual Box / 7z SFX 压成便携单 exe → 复制 perm-config skill/合并脚本/文档并打推荐分发 zip。
 
   产物（release/ 目录）：
-    release\perm-admin\                  app-image 目录形态（整目录可分发，含 perm-admin.exe）
-    release\perm-admin\permissions.json  外置默认配置（编辑后重启或 /api/config/reload 生效）
-    release\perm-admin.exe               便携单 exe（EVB 优先，缺则 7z SFX；文件名不可改）
-    release\permissions.json             单 exe 同款外置配置（与单 exe 同目录即生效）
+    release\perm-admin-v<版本>-windows-x64.zip  推荐分发包：单 exe + 外置配置 + perm-config skill/合并脚本/文档
+    release\perm-admin\                       app-image 目录形态（整目录可分发，含 perm-admin.exe 与 skill）
+    release\perm-admin\permissions.json       外置默认配置（编辑后重启或 /api/config/reload 生效）
+    release\perm-admin.exe                    便携单 exe（EVB 优先，缺则 7z SFX；文件名不可改）
+    release\permissions.json                  单 exe 同款外置配置（与单 exe 同目录即生效）
+    release\.agents\skills\perm-config\       随发布物附带的权限表接入 skill
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts/build-exe.ps1
@@ -42,6 +44,84 @@ if (-not $AppVersion) {
 function JdkTool($name) { Join-Path $JdkHome "bin\$name.exe" }
 function Step($msg) { Write-Host "`n=== $msg" -ForegroundColor Cyan }
 function Require($path, $hint) { if (-not (Test-Path $path)) { throw "找不到: $path  ($hint)" } }
+
+function Write-ReleaseReadme($targetDir) {
+    $content = @'
+# perm-admin 便携版 v{{VERSION}}
+
+## 运行
+
+1. 保持 `perm-admin.exe` 文件名不变，并确保它与 `permissions.json` 在同一目录。
+2. 双击 `perm-admin.exe`；控制台窗口保持打开即服务运行，关闭即停止。
+3. 浏览器访问 http://localhost:18917 （启动器通常会自动打开）。
+4. 修改 `permissions.json` 后，重启程序或调用 `POST /api/config/reload`。
+
+## 接入新项目/权限表
+
+本包已经附带 `perm-config` skill 与配套工具：
+
+- `.agents/skills/perm-config/SKILL.md`：接入权限表的标准流程和配置说明
+- `scripts/add-perm-table.mjs`：把新权限表配置安全合并进 `permissions.json`（需要 Node.js 18+）
+- `docs/design.md`：完整配置 Schema 与 API 契约
+
+在本目录打开支持 skills 的 AI agent（如 Devin / Claude Code / Codex），直接说：
+
+> 把项目 X 的权限表接入 perm-admin
+
+如果 agent 没有自动发现 skill，先让它阅读 `.agents/skills/perm-config/SKILL.md` 并按其中步骤操作。便携包根目录下运行合并脚本时会默认使用本目录的 `permissions.json`；也可以显式加 `--config permissions.json`。
+'@
+    $content = $content.Replace('{{VERSION}}', $AppVersion)
+    [IO.File]::WriteAllText((Join-Path $targetDir 'README.md'), $content, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Copy-ReleaseSupportFiles($targetDir) {
+    $skillSrcDir = Join-Path $root '.agents\skills\perm-config'
+    $mergeScript = Join-Path $root 'scripts\add-perm-table.mjs'
+    $designDoc = Join-Path $root 'docs\design.md'
+    Require $skillSrcDir 'perm-config skill 缺失'
+    Require $mergeScript '权限表合并脚本缺失'
+    Require $designDoc '设计文档缺失'
+
+    $skillTargetDir = Join-Path $targetDir '.agents\skills\perm-config'
+    Get-ChildItem $skillSrcDir -Recurse -File | ForEach-Object {
+        $relative = $_.FullName.Substring($skillSrcDir.Length).TrimStart('\')
+        $dest = Join-Path $skillTargetDir $relative
+        New-Item -ItemType Directory -Force (Split-Path -Parent $dest) | Out-Null
+        Copy-Item $_.FullName $dest -Force
+    }
+
+    $scriptTargetDir = Join-Path $targetDir 'scripts'
+    $docTargetDir = Join-Path $targetDir 'docs'
+    New-Item -ItemType Directory -Force $scriptTargetDir | Out-Null
+    New-Item -ItemType Directory -Force $docTargetDir | Out-Null
+    Copy-Item $mergeScript (Join-Path $scriptTargetDir 'add-perm-table.mjs') -Force
+    Copy-Item $designDoc (Join-Path $docTargetDir 'design.md') -Force
+    Write-ReleaseReadme $targetDir
+}
+
+function Write-FilesToZip($sourceItems, $destinationPath) {
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $stream = [System.IO.File]::Open($destinationPath, [System.IO.FileMode]::Create)
+    try {
+        $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($item in $sourceItems) {
+                $itemInfo = Get-Item -LiteralPath $item
+                if ($itemInfo.PSIsContainer) {
+                    $base = $itemInfo.FullName
+                    Get-ChildItem -LiteralPath $base -Recurse -File -Force | ForEach-Object {
+                        $relative = $_.FullName.Substring($base.Length).TrimStart([IO.Path]::DirectorySeparatorChar)
+                        $entryName = $itemInfo.Name + '/' + $relative.Replace([IO.Path]::DirectorySeparatorChar, [char]'/')
+                        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+                    }
+                } else {
+                    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $itemInfo.FullName, $itemInfo.Name, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+                }
+            }
+        } finally { $zip.Dispose() }
+    } finally { $stream.Dispose() }
+}
 
 # jdeps 实测清单 + jdeps 看不到的驱动运行时件（TLS/SASL/中文 locale/Windows 证书库）
 $Modules = 'java.base,java.compiler,java.desktop,java.instrument,java.management,java.management.rmi,' +
@@ -98,6 +178,7 @@ if ($LASTEXITCODE -ne 0) { throw "jpackage 失败 (exit $LASTEXITCODE)" }
 # 外置默认配置：放 app-image exe 同目录（仅目录形态分发用；
 # 单 exe 打包时会从 EVB/7z 包内排除 —— 包内虚拟副本会挡住用户放在 exe 旁的同名文件）
 Copy-Item (Join-Path $root 'config\permissions.json') (Join-Path $appDir 'permissions.json') -Force
+Copy-ReleaseSupportFiles $appDir
 $appExe = Join-Path $appDir 'perm-admin.exe'
 Require $appExe 'jpackage 未产出启动器'
 
@@ -187,14 +268,33 @@ if ($evbConsole) {
     }
 }
 
-# 单 exe 旁也放一份默认可编辑配置
+# 单 exe 旁也放一份默认可编辑配置，并补齐 skill/合并脚本/文档后打成推荐分发 zip
 if (Test-Path $singleExe) {
     Copy-Item (Join-Path $root 'config\permissions.json') (Join-Path $release 'permissions.json') -Force
+    Copy-ReleaseSupportFiles $release
+
+    $zipPath = Join-Path $release "perm-admin-v$AppVersion-windows-x64.zip"
+    $zipInputs = @(
+        $singleExe,
+        (Join-Path $release 'permissions.json'),
+        (Join-Path $release 'README.md'),
+        (Join-Path $release '.agents'),
+        (Join-Path $release 'scripts'),
+        (Join-Path $release 'docs')
+    )
+    Write-FilesToZip $zipInputs $zipPath
+    $zip = Get-Item $zipPath
+    Write-Host "分发包: $($zip.FullName)  ($([math]::Round($zip.Length/1MB,1)) MB)"
+} else {
+    Write-Warning '未生成单 exe，跳过便携 zip 打包。'
 }
 
 # ---------- 5. 汇总 ----------
 Step '5/5 产物'
 Get-ChildItem $release -Recurse -File |
-    Where-Object { $_.FullName -like '*.exe' -or $_.Name -eq 'permissions.json' } |
+    Where-Object {
+        $_.Name -in @('perm-admin.exe', 'permissions.json', 'README.md', 'SKILL.md', 'add-perm-table.mjs', 'design.md') -or
+        $_.Name -like 'perm-admin-v*-windows-x64.zip'
+    } |
     ForEach-Object { '{0,10:N1} MB  {1}' -f ($_.Length/1MB), $_.FullName.Replace("$release\", '') }
-Write-Host "`n用法：把 release\perm-admin.exe（单文件）或 perm-admin\ 目录 + permissions.json 拷到目标机，双击即跑。" -ForegroundColor Green
+Write-Host "`n用法：优先分发 release\perm-admin-v$AppVersion-windows-x64.zip；解压后双击 perm-admin.exe。也可整目录分发 release\perm-admin\。" -ForegroundColor Green

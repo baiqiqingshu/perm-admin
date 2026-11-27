@@ -1,11 +1,11 @@
 ---
 name: perm-config
-description: "为 perm-admin 项目接入/修改权限表配置时使用：当用户要把新项目/新环境/新数据库/新权限表接入 config/permissions.json，或修改已有权限表配置（字段映射、label、连接信息、取值枚举）时，按本 skill 的「探查→枚举值→生成→合并→重载验证」五步流程操作。"
+description: "为 perm-admin 项目接入/修改权限表配置时使用：当用户要把新项目/新环境/新数据库/新权限表接入权限 JSON 配置，或修改已有权限表配置（字段映射、label、连接信息、取值枚举）时，按本 skill 的「探查→枚举值→生成→合并→重载验证」五步流程操作。"
 ---
 
 # perm-config：权限表配置接入
 
-把业务系统的权限表接入 perm-admin 的标准流程。配置唯一事实来源是 `config/permissions.json`（schema 定义见 `docs/design.md`「配置 JSON Schema」一节）。
+把业务系统的权限表接入 perm-admin 的标准流程。配置唯一事实来源是权限 JSON：源码仓库通常是 `config/permissions.json`，便携发行包通常是 exe 旁的 `permissions.json`（schema 定义见 `docs/design.md`「配置 JSON Schema」一节）。
 
 ## 何时使用
 
@@ -167,20 +167,22 @@ SELECT DISTINCT <范围列> FROM <表名>;
 - `otherFields` 覆盖表里所有 NOT NULL 且无默认值的非映射列；`personName` 是可空列就配 `null`。
 - 数字存储值在 JSON 里仍写字符串（`"value": "1"`）。
 
-### Step 4 合并：写进 config/permissions.json
+### Step 4 合并：写进权限配置
 
 **优先用脚本** `scripts/add-perm-table.mjs`（Node ≥18 零依赖），自动按 code 查找/创建层级、做唯一性校验，防手抖改坏 JSON：
 
 ```bash
 node scripts/add-perm-table.mjs --file snippet.json --dry-run   # 先 dry-run 看合并结果（打印不落盘）
-node scripts/add-perm-table.mjs --file snippet.json             # 确认后写回（默认 --config config/permissions.json）
+node scripts/add-perm-table.mjs --file snippet.json             # 确认后写回（自动选择默认配置）
 cat snippet.json | node scripts/add-perm-table.mjs              # 也支持 stdin 传 snippet
 node scripts/add-perm-table.mjs --config /tmp/copy.json --file snippet.json  # 指定其他配置文件
 ```
 
+默认配置路径：源码仓库是 `config/permissions.json`；便携发行包根目录通常只有 exe 旁的 `permissions.json`，脚本会自动回退使用它，也可显式传 `--config permissions.json`。
+
 脚本行为：project→environment→database 按 code 找，找不到就创建；table 追加到 `database.permissionTables`，同 code 则替换并提示；`database.code` 撞到"不同库"（不同 project/env 组合或 jdbcUrl 不同）直接报错退出。
 
-手工编辑也可以：哪级缺补哪级，注意保持 2 空格缩进、JSON 合法（改完可 `node -e "JSON.parse(require('fs').readFileSync('config/permissions.json'))"` 验证）。
+手工编辑也可以：哪级缺补哪级，注意保持 2 空格缩进、JSON 合法（改完可 `node -e "JSON.parse(require('fs').readFileSync('permissions.json'))"` 或替换为实际配置路径验证）。
 
 ### Step 5 重载 + 验证
 

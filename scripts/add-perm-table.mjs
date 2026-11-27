@@ -22,14 +22,15 @@
  *   - 所有提示/诊断走 stderr，stdout 只输出合并后的 JSON（便于管道）
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const USAGE = `用法:
   node scripts/add-perm-table.mjs [--config <path>] [--file <snippet.json>] [--dry-run]
 
 选项:
-  --config <path>  主配置文件路径，默认 config/permissions.json
+  --config <path>  主配置文件路径；默认 config/permissions.json，
+                   不存在时回退 ./permissions.json（兼容便携包根目录）
   --file <path>    snippet JSON 文件；省略时从 stdin 读取
   --dry-run        只打印合并结果到 stdout，不写回文件
   -h, --help       显示帮助
@@ -51,8 +52,14 @@ const die = (msg) => { console.error(`[add-perm-table] 错误: ${msg}`); process
 
 // ---------- 参数解析 ----------
 
+function defaultConfigPath() {
+  if (existsSync('config/permissions.json')) return 'config/permissions.json';
+  if (existsSync('permissions.json')) return 'permissions.json';
+  return 'config/permissions.json';
+}
+
 function parseArgs(argv) {
-  const opts = { config: 'config/permissions.json', file: null, dryRun: false };
+  const opts = { config: null, file: null, dryRun: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--config') opts.config = argv[++i] ?? die('--config 缺少参数值');
@@ -61,6 +68,7 @@ function parseArgs(argv) {
     else if (a === '-h' || a === '--help') { console.log(USAGE); process.exit(0); }
     else die(`未知参数 "${a}"\n\n${USAGE}`);
   }
+  opts.config ??= defaultConfigPath();
   if (!opts.config) die('--config 缺少参数值');
   if (opts.file === undefined) die('--file 缺少参数值');
   return opts;

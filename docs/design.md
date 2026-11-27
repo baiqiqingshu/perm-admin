@@ -169,7 +169,7 @@ perm-admin/
 
 ```bash
 # 后端（18917）：工作目录必须是 backend/（数据文件 ./data 与默认配置路径都相对它）
-cd backend && java -jar target/perm-admin-1.0.4.jar
+cd backend && java -jar target/perm-admin-1.0.6.jar
 # 重新构建（frontend/dist 会被打进 jar 的 /static，18917 同源 serve 页面）：
 JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" \
   "D:/WorkProject/.tools/apache-maven-3.9.16/bin/mvn" -f backend/pom.xml -DskipTests package
@@ -184,14 +184,15 @@ cd frontend && npm install && npm run dev
 powershell -ExecutionPolicy Bypass -File scripts/build-exe.ps1
 ```
 
-流水线：`npm run build` → `mvn package` → `jpackage` app-image（jlink 裁剪运行时，目标机零依赖）→ Enigma Virtual Box 打便携单 exe（未装 EVB 时降级 7z SFX，再缺则只出目录形态）。可选参数：`-SkipFrontend`（dist 已最新）、`-AppImageOnly`（只到目录形态）、`-AppVersion`（覆盖 exe 元数据版本，默认读取 backend/pom.xml）。
+流水线：`npm run build` → `mvn package` → `jpackage` app-image（jlink 裁剪运行时，目标机零依赖）→ Enigma Virtual Box 打便携单 exe（未装 EVB 时降级 7z SFX，再缺则只出目录形态）→ 复制 perm-config skill/合并脚本/设计文档并生成推荐分发 zip。可选参数：`-SkipFrontend`（dist 已最新）、`-AppImageOnly`（只到目录形态）、`-AppVersion`（覆盖 exe 元数据版本，默认读取 backend/pom.xml）。
 
 产物（`release/`）：
+- `perm-admin-v<版本>-windows-x64.zip` —— 推荐分发包，内含便携单 exe、外置配置、`README.md`、`.agents/skills/perm-config/`、`scripts/add-perm-table.mjs` 与 `docs/design.md`
 - `perm-admin.exe` —— 便携单 exe（~81MB；**文件名不可改**，jpackage 启动器按自身文件名找 `app\<name>.cfg`）
-- `perm-admin\` —— app-image 目录形态，内含同名启动器，可整目录分发
+- `perm-admin\` —— app-image 目录形态，内含同名启动器与 skill/文档，可整目录分发
 - `permissions.json` —— 外置默认配置，与 exe 同目录即生效（不存在则用 jar 内置兜底配置）
 
-目标机用法：`perm-admin.exe` + `permissions.json` 放同一目录双击；控制台窗口保持打开即服务运行，关闭即停止；启动后自动尝试打开浏览器（`-Dperm.openBrowser`，非交互桌面环境失败时手动访问 `http://localhost:18917`）。
+目标机用法：优先解压 `perm-admin-v<版本>-windows-x64.zip`，双击其中的 `perm-admin.exe`；控制台窗口保持打开即服务运行，关闭即停止；启动后自动尝试打开浏览器（`-Dperm.openBrowser`，非交互桌面环境失败时手动访问 `http://localhost:18917`）。发行包附带 `perm-config` skill 与配置合并脚本，便于 agent 或用户接入新权限表；合并脚本是可选工具，需 Node.js 18+。
 运行时参数可追加：`perm-admin.exe --server.port=9090 --perm.config=D:\conf\x.json`。
 
 demo 配置自带两个 H2 演示库、erp 项目自带三个 SQLite 演示库（`./data/` 相对 exe 所在目录，autoInit 自动建库建表灌数），均无需外部数据库。

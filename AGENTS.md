@@ -13,7 +13,7 @@
 # Maven 在 D:\WorkProject\.tools\apache-maven-3.9.16（阿里云镜像已配），JDK 需指定：
 JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" \
   "D:/WorkProject/.tools/apache-maven-3.9.16/bin/mvn" -f backend/pom.xml -DskipTests package
-cd backend && java -jar target/perm-admin-1.0.4.jar   # 工作目录必须 backend/；frontend/dist 已打进 /static，18917 同源出页面
+cd backend && java -jar target/perm-admin-1.0.6.jar   # 工作目录必须 backend/；frontend/dist 已打进 /static，18917 同源出页面
 
 cd frontend && npm install && npm run dev             # npm 走 .npmrc npmmirror
 
@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-exe.ps1   # 产物在 rel
 ```
 
 ## 分发（内网）
-`release/perm-admin.exe`（单文件 81MB，名字不可改）或 `release/perm-admin/` 目录 + `permissions.json` 拷到目标机双击即用，零依赖。
+优先分发 `release/perm-admin-v<版本>-windows-x64.zip`：内含 `perm-admin.exe`（名字不可改）、`permissions.json`、`README.md`、`.agents/skills/perm-config/`、`scripts/add-perm-table.mjs` 与 `docs/design.md`，解压双击即用，零依赖（可选合并脚本需 Node.js 18+）。也可整目录分发 `release/perm-admin/`。
 配置解析：PERM_CONFIG 环境变量 > `--perm.config=` > ./permissions.json > ./config/ > ../config/ > exe 旁（jpackage.app-path）> jar 内置兜底。注意：build-exe.ps1 已把 permissions.json 排除出 EVB/7z 包，否则包内虚拟副本会遮蔽用户外置配置。
 
 ## 约定
