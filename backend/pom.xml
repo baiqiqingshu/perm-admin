@@ -13,7 +13,7 @@
 
     <groupId>com.perm.admin</groupId>
     <artifactId>perm-admin</artifactId>
-    <version>1.0.4</version>
+    <version>1.0.5</version>
     <name>perm-admin</name>
     <description>Local permission admin tool backend</description>
 

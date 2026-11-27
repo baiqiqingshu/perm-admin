@@ -1,5 +1,6 @@
 package com.perm.admin.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.perm.admin.common.ApiException;
 import com.perm.admin.config.ConfigModel.DatabaseNode;
 import com.perm.admin.config.ConfigModel.FieldMapping;
@@ -58,7 +59,8 @@ public class PermissionService {
                                  String tableCode, Targets targets,
                                  List<DeleteItem> items, List<Person> persons,
                                  List<String> permissions, List<String> scopes,
-                                 List<String> permissionLabels, List<String> scopeLabels) {
+                                 List<String> permissionLabels, List<String> scopeLabels,
+                                 List<JsonNode> rows) {
     }
 
     /** insert 新契约的目标过滤：各级均为可选多选，空/缺省 = 该级不筛选。 */
@@ -298,6 +300,9 @@ public class PermissionService {
      * - persons 为空/无目标表/全部 label 不受支持 -> 200 + 空 groups（persons 字段缺失才 400）。
      */
     private Map<String, Object> previewInsert(PreviewRequest req) {
+        if (req.rows() != null) {
+            return previewInsertRows(req);
+        }
         if (req.persons() == null) {
             throw ApiException.badRequest("新增预览 persons 不能为空");
         }
@@ -341,14 +346,14 @@ public class PermissionService {
             } catch (Exception e) {
                 log.warn("去重查询失败 {}.{}: {}", dbCode, tableName, e.getMessage());
                 errors.add(entry("dbCode", dbCode, "tableName", tableName, "error", msg(e)));
-                existing = Set.of();
+                existing = new HashSet<>();
             }
 
             GroupAcc acc = null;
             for (Person person : req.persons()) {
                 for (Sel perm : perms) {
                     for (Sel scope : scopes) {
-                        if (existing.contains(Arrays.asList(person.id(), scope.value(), perm.value()))) {
+                        if (!existing.add(Arrays.asList(person.id(), scope.value(), perm.value()))) {
                             skipped.add(entry("dbCode", dbCode, "tableName", tableName,
                                     "personId", person.id(),
                                     "permissionLabel", perm.display(), "scopeLabel", scope.display()));
@@ -370,6 +375,152 @@ public class PermissionService {
         resp.put("unsupported", unsupported);
         resp.put("errors", errors);
         return resp;
+    }
+
+    private record InsertGrant(ResolvedTable target, Person person, Sel permission, Sel scope) {
+    }
+
+    private Map<String, Object> previewInsertRows(PreviewRequest req) {
+        List<InsertGrant> grants = new ArrayList<>();
+        List<Map<String, Object>> unsupported = new ArrayList<>();
+        for (int i = 0; i < req.rows().size(); i++) {
+            int line = i + 1;
+            JsonNode row = req.rows().get(i);
+            if (row == null || !row.isObject()) {
+                throw rowError(line, "必须是对象");
+            }
+            JsonNode name = row.get("name");
+            if (name != null && !name.isNull() && !name.isTextual()) {
+                throw rowError(line, "name 必须是字符串");
+            }
+            Person person = new Person(rowText(row, "id", line, true),
+                    name == null || name.isNull() ? null : name.textValue().trim());
+            String permission = rowText(row, "permissionLabel", line, false);
+            String scope = rowText(row, "scopeLabel", line, false);
+            List<ResolvedTable> targets = resolveRowTargets(req, row, line);
+            List<String> permReqs = permission != null ? List.of(permission)
+                    : req.permissions() != null ? req.permissions() : req.permissionLabels();
+            List<String> scopeReqs = scope != null ? List.of(scope)
+                    : req.scopes() != null ? req.scopes() : req.scopeLabels();
+            if (permReqs == null || permReqs.isEmpty() || scopeReqs == null || scopeReqs.isEmpty()) {
+                throw rowError(line, "缺少有效权限或数据范围，请填写行属性或全局选项");
+            }
+            int start = grants.size();
+            for (ResolvedTable rt : targets) {
+                PermTable table = rt.table();
+                List<Sel> perms = permission != null
+                        ? strictRowOptions(table.permissions, permission, line, "permissionLabel")
+                        : resolveOptions(table.permissions, permReqs, req.permissions() != null,
+                                rt.database().code, table.tableName, "permission", unsupported);
+                List<Sel> scopes = scope != null
+                        ? strictRowOptions(table.scopes, scope, line, "scopeLabel")
+                        : resolveOptions(table.scopes, scopeReqs, req.scopes() != null,
+                                rt.database().code, table.tableName, "scope", unsupported);
+                for (Sel perm : perms) {
+                    for (Sel selectedScope : scopes) {
+                        grants.add(new InsertGrant(rt, person, perm, selectedScope));
+                    }
+                }
+            }
+            if (grants.size() == start) {
+                throw rowError(line, "权限、数据范围和目标表无有效匹配");
+            }
+        }
+
+        Map<String, GroupAcc> groups = new LinkedHashMap<>();
+        Map<String, List<InsertGrant>> byTable = new LinkedHashMap<>();
+        for (InsertGrant grant : grants) {
+            String key = grant.target().database().code + "|" + grant.target().table().tableName;
+            byTable.computeIfAbsent(key, k -> new ArrayList<>()).add(grant);
+        }
+        List<Map<String, Object>> skipped = new ArrayList<>();
+        List<Map<String, Object>> errors = new ArrayList<>();
+        for (List<InsertGrant> tableGrants : byTable.values()) {
+            ResolvedTable rt = tableGrants.get(0).target();
+            Set<List<String>> existing;
+            try {
+                existing = loadExisting(rt, tableGrants.stream().map(g -> g.person().id()).distinct().toList());
+            } catch (Exception e) {
+                log.warn("去重查询失败 {}.{}: {}", rt.database().code, rt.table().tableName, e.getMessage());
+                errors.add(entry("dbCode", rt.database().code, "tableName", rt.table().tableName, "error", msg(e)));
+                existing = new HashSet<>();
+            }
+            for (InsertGrant grant : tableGrants) {
+                if (!existing.add(Arrays.asList(grant.person().id(), grant.scope().value(), grant.permission().value()))) {
+                    skipped.add(entry("dbCode", rt.database().code, "tableName", rt.table().tableName,
+                            "personId", grant.person().id(), "permissionLabel", grant.permission().display(),
+                            "scopeLabel", grant.scope().display()));
+                    continue;
+                }
+                acc(groups, grant.target()).statements.add(SqlBuilder.buildInsert(grant.target().table(),
+                        grant.person().id(), grant.person().name(), grant.scope().value(), grant.permission().value()));
+            }
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("groups", toGroupDtos(groups));
+        resp.put("skipped", skipped);
+        resp.put("unsupported", unsupported);
+        resp.put("errors", errors);
+        return resp;
+    }
+
+    private List<ResolvedTable> resolveRowTargets(PreviewRequest req, JsonNode row, int line) {
+        String project = rowText(row, "projectName", line, false);
+        String environment = rowText(row, "environmentName", line, false);
+        String database = rowText(row, "databaseName", line, false);
+        String table = rowText(row, "tableTitle", line, false);
+        Targets global = req.targets();
+        List<ResolvedTable> targets = configService.resolveTablesMulti(
+                project != null ? null : hasText(req.project()) ? List.of(req.project()) : global == null ? null : global.projects(),
+                environment != null ? null : hasText(req.environment()) ? List.of(req.environment()) : global == null ? null : global.environments(),
+                database != null ? null : hasText(req.database()) ? List.of(req.database()) : global == null ? null : global.databases(),
+                table != null ? null : hasText(req.tableCode()) ? List.of(req.tableCode()) : global == null ? null : global.tableCodes())
+                .stream().filter(rt -> (project == null || project.equals(rt.project().name))
+                        && (environment == null || environment.equals(rt.environment().name))
+                        && (database == null || database.equals(rt.database().name))
+                        && (table == null || table.equals(rt.table().name))).toList();
+        if (targets.isEmpty()) {
+            throw rowError(line, "项目/环境/数据库/表名称无有效匹配");
+        }
+        if ((project != null && targets.stream().map(ResolvedTable::project).distinct().count() > 1)
+                || (environment != null && targets.stream().map(ResolvedTable::environment).distinct().count() > 1)
+                || (database != null && targets.stream().map(ResolvedTable::database).distinct().count() > 1)
+                || (table != null && targets.stream().map(ResolvedTable::table).distinct().count() > 1)) {
+            throw rowError(line, "项目/环境/数据库/表显示名称存在歧义，请补全上下文");
+        }
+        return targets;
+    }
+
+    private List<Sel> strictRowOptions(List<Option> options, String label, int line, String field) {
+        List<Option> matches = options.stream().filter(o -> label.equals(o.label)).toList();
+        if (matches.size() > 1) {
+            throw rowError(line, field + " 显示 label 存在歧义: " + label);
+        }
+        if (matches.isEmpty()) {
+            throw rowError(line, field + " 在目标表中没有匹配的显示 label: " + label);
+        }
+        if (!hasText(matches.get(0).value)) {
+            throw rowError(line, field + " 没有有效配置值: " + label);
+        }
+        return List.of(new Sel(label, matches.get(0).value));
+    }
+
+    private String rowText(JsonNode row, String field, int line, boolean required) {
+        if (!row.has(field)) {
+            if (required) {
+                throw rowError(line, field + " 必填");
+            }
+            return null;
+        }
+        JsonNode value = row.get(field);
+        if (!value.isTextual() || !hasText(value.textValue())) {
+            throw rowError(line, field + " 必须是非空字符串且每行只能填写一个值");
+        }
+        return value.textValue().trim();
+    }
+
+    private ApiException rowError(int line, String message) {
+        return ApiException.badRequest("第 " + line + " 行: " + message);
     }
 
     /** 已选中的 权限/范围 项：display 用于 skipped 回填（label 或裸 value），value 为实际存储值。 */

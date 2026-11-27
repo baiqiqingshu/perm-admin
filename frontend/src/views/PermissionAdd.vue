@@ -6,18 +6,30 @@
         <span class="section-icon"><el-icon :size="16"><User /></el-icon></span>
         <div class="section-title">
           <h3>批量人员</h3>
-          <p>每行一条：工号 或 工号,姓名（兼容中文逗号，按工号去重）</p>
+          <p>{{ personsHint }}</p>
         </div>
         <el-tag v-if="persons.length" size="small" effect="plain" class="count-tag">
-          已解析 {{ persons.length }} 人<template v-if="dupCount"> · 去重 {{ dupCount }} 行</template>
+          已解析 {{ persons.length }} 行<template v-if="dupCount"> · 去重 {{ dupCount }} 行</template>
         </el-tag>
       </header>
+      <div class="row-cols">
+        <span class="field-label">批量列</span>
+        <el-checkbox-group v-model="rowCols">
+          <el-checkbox v-for="c in ROW_COLUMNS" :key="c.key" :value="c.key">
+            {{ c.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+      </div>
       <el-input
         v-model="personsText"
         type="textarea"
         :rows="5"
-        :placeholder="'例如：\nu001,张三\nu002\nu003，李四'"
+        :placeholder="personsPlaceholder"
       />
+      <ul v-if="rowErrors.length" class="row-errors">
+        <li v-for="(err, i) in rowErrors.slice(0, 5)" :key="i">{{ err }}</li>
+        <li v-if="rowErrors.length > 5">… 共 {{ rowErrors.length }} 个问题</li>
+      </ul>
     </section>
 
     <!-- 目标范围 -->
@@ -50,7 +62,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="2"
-            placeholder="留空 = 全部项目"
+            :disabled="colEnabled('projectName')"
+            :placeholder="colEnabled('projectName') ? '由每行提供' : '留空 = 全部项目'"
           >
             <el-option
               v-for="o in projectOptions"
@@ -80,7 +93,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="2"
-            placeholder="留空 = 全部环境"
+            :disabled="colEnabled('environmentName')"
+            :placeholder="colEnabled('environmentName') ? '由每行提供' : '留空 = 全部环境'"
           >
             <el-option
               v-for="o in envOptions"
@@ -110,7 +124,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="2"
-            placeholder="留空 = 全部数据库"
+            :disabled="colEnabled('databaseName')"
+            :placeholder="colEnabled('databaseName') ? '由每行提供' : '留空 = 全部数据库'"
           >
             <el-option
               v-for="o in dbOptions"
@@ -140,7 +155,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="2"
-            placeholder="留空 = 全部权限表"
+            :disabled="colEnabled('tableTitle')"
+            :placeholder="colEnabled('tableTitle') ? '由每行提供' : '留空 = 全部权限表'"
           >
             <el-option
               v-for="o in tableOptions"
@@ -183,7 +199,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="3"
-            placeholder="选择权限显示名"
+            :disabled="colEnabled('permissionLabel')"
+            :placeholder="colEnabled('permissionLabel') ? '由每行提供' : '选择权限显示名'"
           >
             <el-option
               v-for="o in permLabelOptions"
@@ -210,7 +227,8 @@
             collapse-tags
             collapse-tags-tooltip
             :max-collapse-tags="3"
-            placeholder="选择数据范围显示名"
+            :disabled="colEnabled('scopeLabel')"
+            :placeholder="colEnabled('scopeLabel') ? '由每行提供' : '选择数据范围显示名'"
           >
             <el-option
               v-for="o in scopeLabelOptions"
@@ -231,7 +249,11 @@
     <!-- 摘要 + 操作 -->
     <section class="panel-card summary-bar">
       <div class="summary-text">
-        <template v-if="effective.length">
+        <template v-if="activeCols.length">
+          <span class="summary-line">已解析 {{ persons.length }} 行，按每行显示名与未启用批量列的全局选项匹配目标</span>
+          <span class="summary-detail muted">目标与插入条数以 SQL 预览为准，不按全局选项计算笛卡尔积</span>
+        </template>
+        <template v-else-if="effective.length">
           <span class="summary-line">
             将写入 <b>{{ summary.projects }}</b> 个项目 · <b>{{ summary.envs }}</b> 个环境 ·
             <b>{{ summary.dbs }}</b> 个库 · <b>{{ summary.tables }}</b> 张表
@@ -243,7 +265,13 @@
               {{ scopeLabels.length }} 范围 × {{ summary.tables }} 表（去重结果以预览为准）
             </template>
             <template v-else>
-              {{ persons.length ? '勾选权限与数据范围后显示预计条数' : '填写人员后显示预计条数' }}
+              {{
+                colEnabled('permissionLabel') || colEnabled('scopeLabel')
+                  ? '权限/范围由每行提供，条数以预览为准'
+                  : persons.length
+                    ? '勾选权限与数据范围后显示预计条数'
+                    : '填写人员后显示预计条数'
+              }}
             </template>
           </span>
           <span class="summary-tables muted">{{ tablePreview }}</span>
@@ -294,6 +322,19 @@ import { loadConfig, collectTableEntries } from '../store/config'
 
 const personsText = ref('')
 
+/** 批量列：勾选后每行按 工号,姓名,勾选列（固定顺序）提供该字段值 */
+const ROW_COLUMNS = [
+  { key: 'permissionLabel', label: '权限', sample: '查询' },
+  { key: 'scopeLabel', label: '数据范围', sample: '本部' },
+  { key: 'projectName', label: '项目', sample: '核心项目' },
+  { key: 'environmentName', label: '环境', sample: '生产环境' },
+  { key: 'databaseName', label: '数据库', sample: '用户库' },
+  { key: 'tableTitle', label: '权限表', sample: '菜单权限表' }
+]
+const rowCols = ref([])
+const activeCols = computed(() => ROW_COLUMNS.filter((c) => rowCols.value.includes(c.key)))
+const colEnabled = (key) => rowCols.value.includes(key)
+
 /** 四级目标多选（存 code；空数组 = 该级全部） */
 const sel = reactive({ projects: [], envs: [], dbs: [], tables: [] })
 const permLabels = ref([])
@@ -312,43 +353,105 @@ const execResults = ref([])
 
 onMounted(() => loadConfig())
 
-/* ---------- 人员解析（按工号去重，兼容中英文逗号） ---------- */
+/* ---------- 人员解析（完全相同的行才去重，兼容中英文逗号） ---------- */
 const parsed = computed(() => {
   const list = []
+  const errors = []
   const seen = new Set()
   let dup = 0
-  for (const raw of String(personsText.value || '').split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line) continue
-    const idx = line.search(/[,，]/)
-    const id = idx < 0 ? line : line.slice(0, idx).trim()
-    const name = idx < 0 ? '' : line.slice(idx + 1).trim()
-    if (!id) continue
-    if (seen.has(id)) {
-      dup++
-      continue
-    }
-    seen.add(id)
-    list.push({ id, name })
-  }
-  return { list, dup }
+  const cols = activeCols.value
+  String(personsText.value || '')
+    .split(/\r?\n/)
+    .forEach((raw, i) => {
+      const line = raw.trim()
+      if (!line) return
+      const ln = i + 1
+      if (!cols.length) {
+        const idx = line.search(/[,，]/)
+        const id = idx < 0 ? line : line.slice(0, idx).trim()
+        const name = idx < 0 ? '' : line.slice(idx + 1).trim()
+        if (!id) {
+          errors.push(`第 ${ln} 行：工号不能为空`)
+          return
+        }
+        const key = JSON.stringify([id, name])
+        if (seen.has(key)) {
+          dup++
+          return
+        }
+        seen.add(key)
+        list.push({ id, name })
+        return
+      }
+      const fields = line.split(/[,，]/).map((s) => s.trim())
+      const need = 2 + cols.length
+      if (fields.length < need) {
+        errors.push(`第 ${ln} 行：缺列，应为 ${need} 列（工号,姓名,${cols.map((c) => c.label).join(',')}）`)
+        return
+      }
+      if (fields.length > need) {
+        errors.push(`第 ${ln} 行：多出 ${fields.length - need} 列，应为 ${need} 列`)
+        return
+      }
+      if (!fields[0]) {
+        errors.push(`第 ${ln} 行：工号不能为空`)
+        return
+      }
+      const row = { id: fields[0], name: fields[1] }
+      let bad = false
+      cols.forEach((c, j) => {
+        const v = fields[2 + j]
+        if (!v) {
+          errors.push(`第 ${ln} 行：${c.label} 不能为空`)
+          bad = true
+        }
+        row[c.key] = v
+      })
+      if (bad) return
+      const key = JSON.stringify(fields)
+      if (seen.has(key)) {
+        dup++
+        return
+      }
+      seen.add(key)
+      list.push(row)
+    })
+  return { list, dup, errors }
 })
 const persons = computed(() => parsed.value.list)
 const dupCount = computed(() => parsed.value.dup)
+const rowErrors = computed(() => parsed.value.errors)
+
+const personsHint = computed(() => {
+  if (!activeCols.value.length) {
+    return '每行一条：工号 或 工号,姓名（兼容中文逗号，完全相同才去重）'
+  }
+  return `每行一条：工号,姓名,${activeCols.value
+    .map((c) => c.label)
+    .join(',')}（空姓名保留逗号；勾选列必填，按显示名填写）`
+})
+const personsPlaceholder = computed(() => {
+  if (!activeCols.value.length) return '例如：\nu001,张三\nu002\nu003，李四'
+  const tail = activeCols.value.map((c) => c.sample).join(',')
+  return `例如：\nu001,张三,${tail}\nu002,,${tail}`
+})
 
 /* ---------- 目标条目与级联可见性 ---------- */
 const entries = computed(() => collectTableEntries())
 
-const inProjects = (e) => !sel.projects.length || sel.projects.includes(e.project)
-const inEnvs = (e) => inProjects(e) && (!sel.envs.length || sel.envs.includes(e.env))
-const inDbs = (e) => inEnvs(e) && (!sel.dbs.length || sel.dbs.includes(e.db))
-const inTables = (e) => inDbs(e) && (!sel.tables.length || sel.tables.includes(e.tableCode))
+const inProjects = (e) => colEnabled('projectName') || !sel.projects.length || sel.projects.includes(e.project)
+const inEnvs = (e) => inProjects(e) && (colEnabled('environmentName') || !sel.envs.length || sel.envs.includes(e.env))
+const inDbs = (e) => inEnvs(e) && (colEnabled('databaseName') || !sel.dbs.length || sel.dbs.includes(e.db))
+const inTables = (e) => inDbs(e) && (colEnabled('tableTitle') || !sel.tables.length || sel.tables.includes(e.tableCode))
 
 /** 一张表必须同时支持全部已选 permissionLabels 与 scopeLabels 才算合格 */
-const labelsActive = computed(() => permLabels.value.length + scopeLabels.value.length > 0)
+const labelsActive = computed(() =>
+  (!colEnabled('permissionLabel') && permLabels.value.length > 0) ||
+  (!colEnabled('scopeLabel') && scopeLabels.value.length > 0)
+)
 const qualifies = (e) =>
-  permLabels.value.every((l) => e.permLabels.has(l)) &&
-  scopeLabels.value.every((l) => e.scopeLabels.has(l))
+  (colEnabled('permissionLabel') || permLabels.value.every((l) => e.permLabels.has(l))) &&
+  (colEnabled('scopeLabel') || scopeLabels.value.every((l) => e.scopeLabels.has(l)))
 
 /** 最终将被写入的 (db, table) 目标 */
 const effective = computed(() => entries.value.filter((e) => inTables(e) && qualifies(e)))
@@ -444,6 +547,7 @@ function setIfDiff(arr, next) {
 
 /** label 勾选变化：自顶向下修剪掉无法满足全部已选 label 的目标 */
 watch([permLabels, scopeLabels], () => {
+  if (activeCols.value.length) return
   if (!labelsActive.value) return // 清空 label 时不主动恢复选择
   let removed = 0
   const prune = (arr, keep) => {
@@ -472,6 +576,7 @@ watch([permLabels, scopeLabels], () => {
 watch(
   () => [sel.projects, sel.envs, sel.dbs],
   () => {
+    if (activeCols.value.length) return
     sel.envs = setIfDiff(
       sel.envs,
       sel.envs.filter((c) => envOptions.value.some((o) => o.code === c))
@@ -498,6 +603,7 @@ const summary = computed(() => ({
 
 /** 每张目标表实际将生成的行数 = 命中权限数 × 命中范围数；M = 人数 × 合计 */
 const estRows = computed(() => {
+  if (activeCols.value.length) return 0
   if (!persons.value.length || !permLabels.value.length || !scopeLabels.value.length) return 0
   const perTable = effective.value.reduce(
     (sum, e) =>
@@ -529,16 +635,20 @@ function resetTargets() {
 
 /* ---------- 提交 ---------- */
 async function onPreview() {
+  if (rowErrors.value.length) {
+    ElMessage.error(rowErrors.value[0])
+    return
+  }
   if (!persons.value.length) {
-    ElMessage.warning('请填写批量人员（每行：工号 或 工号,姓名）')
+    ElMessage.warning('请填写批量人员')
     return
   }
-  if (!permLabels.value.length) {
-    ElMessage.warning('请选择权限显示名')
+  if (!colEnabled('permissionLabel') && !permLabels.value.length) {
+    ElMessage.warning('请选择权限显示名，或勾选「权限」批量列由每行提供')
     return
   }
-  if (!scopeLabels.value.length) {
-    ElMessage.warning('请选择数据范围显示名')
+  if (!colEnabled('scopeLabel') && !scopeLabels.value.length) {
+    ElMessage.warning('请选择数据范围显示名，或勾选「数据范围」批量列由每行提供')
     return
   }
   if (!effective.value.length) {
@@ -546,20 +656,23 @@ async function onPreview() {
     return
   }
   const targets = {}
-  if (sel.projects.length) targets.projects = [...sel.projects]
-  if (sel.envs.length) targets.environments = [...sel.envs]
-  if (sel.dbs.length) targets.databases = [...sel.dbs]
-  if (sel.tables.length) targets.tableCodes = [...sel.tables]
+  if (!colEnabled('projectName') && sel.projects.length) targets.projects = [...sel.projects]
+  if (!colEnabled('environmentName') && sel.envs.length) targets.environments = [...sel.envs]
+  if (!colEnabled('databaseName') && sel.dbs.length) targets.databases = [...sel.dbs]
+  if (!colEnabled('tableTitle') && sel.tables.length) targets.tableCodes = [...sel.tables]
+
+  const payload = {
+    type: 'insert',
+    targets
+  }
+  if (!colEnabled('permissionLabel')) payload.permissionLabels = [...permLabels.value]
+  if (!colEnabled('scopeLabel')) payload.scopeLabels = [...scopeLabels.value]
+  if (activeCols.value.length) payload.rows = persons.value
+  else payload.persons = persons.value
 
   previewing.value = true
   try {
-    const data = await previewSql({
-      type: 'insert',
-      targets,
-      persons: persons.value,
-      permissionLabels: [...permLabels.value],
-      scopeLabels: [...scopeLabels.value]
-    })
+    const data = await previewSql(payload)
     previewGroups.value = data?.groups || []
     previewSkipped.value = data?.skipped || []
     previewUnsupported.value = data?.unsupported || []
@@ -597,15 +710,16 @@ async function onConfirmExecute(groups) {
   resultVisible.value = true
 }
 
-/** 结果弹窗点「确定」后：全部成功才重置表单（保持原逻辑，失败可修正重试） */
+/** 结果弹窗点「确定」后：全部成功仅清除人员输入，保留目标/权限/范围/批量列勾选 */
 function onResultDone() {
   const allOk =
     execResults.value.length > 0 && execResults.value.every((r) => r.success)
-  if (allOk) resetForm()
+  if (allOk) personsText.value = ''
 }
 
 function resetForm() {
   personsText.value = ''
+  rowCols.value = []
   resetTargets()
   permLabels.value = []
   scopeLabels.value = []
@@ -675,6 +789,21 @@ function resetForm() {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.row-cols {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+}
+.row-errors {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--el-color-danger);
+}
+
 .select-field {
   display: flex;
   flex-direction: column;
