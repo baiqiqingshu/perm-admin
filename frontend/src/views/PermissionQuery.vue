@@ -142,7 +142,7 @@
         </ul>
       </el-alert>
 
-      <div v-loading="loading" class="result-grid">
+      <div ref="gridEl" v-loading="loading" class="result-grid" :style="gridHeight ? { height: `${gridHeight}px` } : null">
         <el-auto-resizer @resize="onGridResize">
           <template #default="{ height, width }">
             <el-table-v2
@@ -338,7 +338,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, shallowRef, computed, onMounted, onBeforeUnmount } from 'vue'
+import { reactive, ref, shallowRef, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import TableCascade from '../components/TableCascade.vue'
 import SqlPreviewDialog from '../components/SqlPreviewDialog.vue'
@@ -490,8 +490,41 @@ const execResults = ref([])
 const permissionLabelOptions = computed(() => collectPermissionLabels())
 const scopeLabelOptions = computed(() => collectScopeLabels())
 
-onMounted(() => loadConfig())
-onBeforeUnmount(stopResize)
+const GRID_MIN_HEIGHT = 320
+const GRID_BOTTOM_GAP = 64
+const gridEl = ref()
+const gridHeight = ref(0)
+let gridObserver
+let gridFrame = 0
+
+function scheduleFitGrid() {
+  cancelAnimationFrame(gridFrame)
+  gridFrame = requestAnimationFrame(fitGridHeight)
+}
+
+function fitGridHeight() {
+  const el = gridEl.value
+  if (!el || !el.offsetParent) return
+  const top = el.getBoundingClientRect().top + window.scrollY
+  gridHeight.value = Math.max(GRID_MIN_HEIGHT, Math.floor(window.innerHeight - top - GRID_BOTTOM_GAP))
+}
+
+watch(() => [sortRules.value.length, errors.value.length], () => nextTick(scheduleFitGrid))
+
+onMounted(() => {
+  loadConfig()
+  fitGridHeight()
+  window.addEventListener('resize', scheduleFitGrid)
+  gridObserver = new ResizeObserver(scheduleFitGrid)
+  const page = gridEl.value?.closest('.query-page')
+  if (page) gridObserver.observe(page.firstElementChild)
+})
+onBeforeUnmount(() => {
+  stopResize()
+  window.removeEventListener('resize', scheduleFitGrid)
+  gridObserver?.disconnect()
+  cancelAnimationFrame(gridFrame)
+})
 
 function isBlank(value) {
   return value === null || value === undefined || value === ''
@@ -970,7 +1003,8 @@ function formatError(e) {
 }
 
 .result-grid {
-  height: clamp(420px, calc(100vh - 375px), 760px);
+  box-sizing: border-box;
+  height: max(320px, calc(100vh - 375px));
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
   overflow: hidden;

@@ -13,7 +13,7 @@
 # Maven 在 D:\WorkProject\.tools\apache-maven-3.9.16（阿里云镜像已配），JDK 需指定：
 JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-26.0.1.8-hotspot" \
   "D:/WorkProject/.tools/apache-maven-3.9.16/bin/mvn" -f backend/pom.xml -DskipTests package
-cd backend && java -jar target/perm-admin-1.0.3.jar   # 工作目录必须 backend/；frontend/dist 已打进 /static，18917 同源出页面
+cd backend && java -jar target/perm-admin-1.0.4.jar   # 工作目录必须 backend/；frontend/dist 已打进 /static，18917 同源出页面
 
 cd frontend && npm install && npm run dev             # npm 走 .npmrc npmmirror
 
